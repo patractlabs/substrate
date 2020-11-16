@@ -335,8 +335,10 @@ impl<T: Trait> Token<T> for RuntimeToken {
 				.saturating_add(s.hash_blake2_256_per_byte.saturating_mul(len.into())),
 			HashBlake128(len) => s.hash_blake2_128
 				.saturating_add(s.hash_blake2_128_per_byte.saturating_mul(len.into())),
-            CurveBn256Add(len) => len.into(),
-            CurveBn256Mul(len) => len.into(),
+            CurveBn256Add(len) => s.curve_bn_256_add
+                .saturating_add(s.curve_bn_256_add_per_byte.saturating_mul(len.into())),
+            CurveBn256Mul(len) => s.curve_bn_256_mul
+                .saturating_add(s.curve_bn_256_mul_per_byte.saturating_mul(len.into())),
 		}
 	}
 }

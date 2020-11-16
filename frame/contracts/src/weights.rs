@@ -89,6 +89,10 @@ pub trait WeightInfo {
 	fn seal_hash_blake2_256_per_kb(n: u32, ) -> Weight;
 	fn seal_hash_blake2_128(r: u32, ) -> Weight;
 	fn seal_hash_blake2_128_per_kb(n: u32, ) -> Weight;
+    fn seal_curve_bn_256_add(r: u32, ) -> Weight;
+    fn seal_curve_bn_256_add_per_kb(r: u32, ) -> Weight;
+    fn seal_curve_bn_256_mul(r: u32, ) -> Weight;
+    fn seal_curve_bn_256_mul_per_kb(r: u32, ) -> Weight;
 	fn instr_i64const(r: u32, ) -> Weight;
 	fn instr_i64load(r: u32, ) -> Weight;
 	fn instr_i64store(r: u32, ) -> Weight;
@@ -447,6 +451,26 @@ impl<T: frame_system::Trait> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(4 as Weight))
 			
 	}
+    fn seal_curve_bn_256_add(r: u32) -> Weight {
+        (139_921_000 as Weight)
+			.saturating_add((304_746_000 as Weight).saturating_mul(r as Weight))
+			.saturating_add(T::DbWeight::get().reads(4 as Weight))
+    }
+    fn seal_curve_bn_256_add_per_kb(r: u32) -> Weight {
+        (544_524_000 as Weight)
+			.saturating_add((304_746_000 as Weight).saturating_mul(r as Weight))
+			.saturating_add(T::DbWeight::get().reads(4 as Weight))
+    }
+    fn seal_curve_bn_256_mul(r: u32) -> Weight {
+        (139_921_000 as Weight)
+			.saturating_add((304_746_000 as Weight).saturating_mul(r as Weight))
+			.saturating_add(T::DbWeight::get().reads(4 as Weight))
+    }
+    fn seal_curve_bn_256_mul_per_kb(r: u32) -> Weight {
+        (544_524_000 as Weight)
+			.saturating_add((304_746_000 as Weight).saturating_mul(r as Weight))
+			.saturating_add(T::DbWeight::get().reads(4 as Weight))
+    }
 	fn instr_i64const(r: u32, ) -> Weight {
 		(24_652_000 as Weight)
 			.saturating_add((3_306_000 as Weight).saturating_mul(r as Weight))
@@ -1007,6 +1031,30 @@ impl WeightInfo for () {
 			.saturating_add((151_549_000 as Weight).saturating_mul(n as Weight))
 			.saturating_add(RocksDbWeight::get().reads(4 as Weight))
 			
+	}
+    // TODO: Calculate the correct weight
+    fn seal_curve_bn_256_add(r: u32) -> Weight {
+		(139_921_000 as Weight)
+			.saturating_add((304_746_000 as Weight).saturating_mul(r as Weight))
+			.saturating_add(RocksDbWeight::get().reads(4 as Weight))
+	}
+    // TODO: Calculate the correct weight
+    fn seal_curve_bn_256_add_per_kb(n: u32) -> Weight {
+        (544_524_000 as Weight)
+			.saturating_add((151_549_000 as Weight).saturating_mul(n as Weight))
+			.saturating_add(RocksDbWeight::get().reads(4 as Weight))
+	}
+    // TODO: Calculate the correct weight
+    fn seal_curve_bn_256_mul(r: u32) -> Weight {
+		(139_921_000 as Weight)
+			.saturating_add((304_746_000 as Weight).saturating_mul(r as Weight))
+			.saturating_add(RocksDbWeight::get().reads(4 as Weight))
+	}
+    // TODO: Calculate the correct weight
+    fn seal_curve_bn_256_mul_per_kb(n: u32) -> Weight {
+        (544_524_000 as Weight)
+			.saturating_add((151_549_000 as Weight).saturating_mul(n as Weight))
+			.saturating_add(RocksDbWeight::get().reads(4 as Weight))
 	}
 	fn instr_i64const(r: u32, ) -> Weight {
 		(24_652_000 as Weight)
