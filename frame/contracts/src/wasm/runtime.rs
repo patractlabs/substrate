@@ -36,6 +36,7 @@ use sp_io::hashing::{
 	sha2_256,
 };
 use pallet_contracts_primitives::{ExecResult, ExecReturnValue, ReturnFlags, ExecError};
+use jupiter_io::zk_snarks::{altbn_128_add as bn256_add, altbn_128_mul as bn256_mul};
 
 /// Every error that can be returned to a contract when it calls any of the host functions.
 #[repr(u32)]
@@ -276,6 +277,10 @@ pub enum RuntimeToken {
 	HashBlake256(u32),
 	/// Weight of calling `seal_hash_blake2_128` for the given input size.
 	HashBlake128(u32),
+    /// Weight of calling `seal_curve_bn_256_add` for the given input size.
+    CurveBn256Add(u32),
+    /// Weight of calling `seal_curve_bn_256_mul` for the given input size.
+    CurveBn256Mul(u32),
 }
 
 impl<T: Trait> Token<T> for RuntimeToken {
@@ -330,6 +335,10 @@ impl<T: Trait> Token<T> for RuntimeToken {
 				.saturating_add(s.hash_blake2_256_per_byte.saturating_mul(len.into())),
 			HashBlake128(len) => s.hash_blake2_128
 				.saturating_add(s.hash_blake2_128_per_byte.saturating_mul(len.into())),
+            CurveBn256Add(len) => s.curve_bn_256_add
+                .saturating_add(s.curve_bn_256_add_per_byte.saturating_mul(len.into())),
+            CurveBn256Mul(len) => s.curve_bn_256_mul
+                .saturating_add(s.curve_bn_256_mul_per_byte.saturating_mul(len.into())),
 		}
 	}
 }
@@ -1349,6 +1358,62 @@ define_env!(Env, <E: Ext>,
 		charge_gas(ctx, RuntimeToken::HashBlake128(input_len))?;
 		compute_hash_on_intermediate_buffer(ctx, blake2_128, input_ptr, input_len, output_ptr)
 	},
+    // Computes the BN256 add on the given input buffer.
+    //
+    // Returns the result directly into the given output buffer.
+    //
+    // # Note
+    //
+    // - The `input` and `output` buffer may overlap.
+    // - The output buffer is expected to hold at least 16 bytes (128 bits).
+    // - It is the callers responsibility to provide an output buffer that
+    //   is large enough to hold the expected amount of bytes returned by the
+    //   chosen hash function.
+    //
+    // # Parameters
+    //
+    // - `g1_ptr`: the pointer into the linear memory where the g1 data is placed.
+    // - `g1_len`: the length of the g1 data in bytes.
+    // - `g2_ptr`: the pointer into the linear memory where the g2 data is placed.
+    // - `g2_len`: the length of the g2 data in bytes.
+    // - `output_ptr`: the pointer into the linear memory where the output
+    //                 data is placed. The function will write the result
+    //                 directly into this buffer.
+    seal_curve_bn_256_add(
+        ctx, g1_ptr: u32, g1_len: u32, g2_ptr: u32, g2_len: u32, output_ptr: u32
+    ) => {
+        charge_gas(ctx, RuntimeToken::CurveBn256Add(g1_len + g2_len))?;
+        compute_curve_add_on_intermediate_buffer(
+            ctx, bn256_add, g1_ptr, g1_len, g2_ptr, g2_len, output_ptr,
+        )
+    },
+    // Computes the BN256 mul on the given input buffer.
+    //
+    // Returns the result directly into the given output buffer.
+    //
+    // # Note
+    //
+    // - The `input` and `output` buffer may overlap.
+    // - The output buffer is expected to hold at least 16 bytes (128 bits).
+    // - It is the callers responsibility to provide an output buffer that
+    //   is large enough to hold the expected amount of bytes returned by the
+    //   chosen hash function.
+    //
+    // # Parameters
+    //
+    // - `g1_ptr`: the pointer into the linear memory where the g1 data is placed.
+    // - `g1_len`: the length of the g1 data in bytes.
+    // - `g2_ptr`: the pointer into the linear memory where the g2 data is placed.
+    // - `g2_len`: the length of the g2 data in bytes.
+    // - `output_ptr`: the pointer into the linear memory where the output
+    //                 data is placed. The function will write the result
+    //                 directly into this buffer.
+    seal_curve_bn_256_mul(ctx, input_ptr: u32, input_len: u32, scalar: u64, output_ptr: u32) => {
+        charge_gas(ctx, RuntimeToken::CurveBn256Mul(input_len))?;
+        compute_curve_mul_on_intermediate_buffer(
+            ctx, bn256_mul, input_ptr, input_len, scalar, output_ptr,
+        )
+    },
 );
 
 /// Computes the given hash function on the supplied input.
@@ -1386,6 +1451,77 @@ where
 		hash.as_ref(),
 	)?;
 	Ok(())
+}
+
+
+/// Computes the given curve function on the supplied input.
+///
+/// Reads from the sandboxed input buffer into an intermediate buffer.
+/// Returns the result directly to the output buffer of the sandboxed memory.
+///
+/// It is the callers responsibility to provide an output buffer that
+/// is large enough to hold the expected amount of bytes returned by the
+/// chosen hash function.
+///
+/// # Note
+///
+/// The `input` and `output` buffers may overlap.
+fn compute_curve_add_on_intermediate_buffer<E, F, R>(
+    ctx: &mut Runtime<E>,
+    inflect_fn: F,
+    g1_ptr: u32,
+    g1_len: u32,
+    g2_ptr: u32,
+    g2_len: u32,
+    output_ptr: u32,
+) -> Result<(), sp_sandbox::HostError>
+where
+    E: Ext,
+    F: FnOnce(&[u8], &[u8]) -> R,
+    R: AsRef<[u8]>,
+{
+    // Copy g1 and g2 into supervisor memory.
+    let g1 = read_sandbox_memory(ctx, g1_ptr, g1_len)?;
+    let g2 = read_sandbox_memory(ctx, g2_ptr, g2_len)?;
+    // Compute the hash on the input buffer using the given hash function.
+    let point = inflect_fn(&g1, &g2);
+    // Write the resulting hash back into the sandboxed output buffer.
+    write_sandbox_memory(ctx, output_ptr, point.as_ref())?;
+    Ok(())
+}
+
+/// Computes the given curve function on the supplied input.
+///
+/// Reads from the sandboxed input buffer into an intermediate buffer.
+/// Returns the result directly to the output buffer of the sandboxed memory.
+///
+/// It is the callers responsibility to provide an output buffer that
+/// is large enough to hold the expected amount of bytes returned by the
+/// chosen hash function.
+///
+/// # Note
+///
+/// The `input` and `output` buffers may overlap.
+fn compute_curve_mul_on_intermediate_buffer<E, F, R>(
+    ctx: &mut Runtime<E>,
+    inflect_fn: F,
+    input_ptr: u32,
+    input_len: u32,
+    scalar: u64,
+    output_ptr: u32,
+) -> Result<(), sp_sandbox::HostError>
+where
+    E: Ext,
+    F: FnOnce(&[u8], u64) -> R,
+    R: AsRef<[u8]>,
+{
+    // Copy g1 into supervisor memory.
+    let input = read_sandbox_memory(ctx, input_ptr, input_len)?;
+    // Compute the hash on the input buffer using the given hash function.
+    let point = inflect_fn(&input, scalar);
+    // Write the resulting hash back into the sandboxed output buffer.
+    write_sandbox_memory(ctx, output_ptr, point.as_ref())?;
+    Ok(())
 }
 
 /// Finds duplicates in a given vector.
