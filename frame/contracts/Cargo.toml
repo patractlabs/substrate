@@ -31,7 +31,7 @@ sp-io = { version = "2.0.0", default-features = false, git = "https://github.com
 sp-std = { version = "2.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-sandbox = { version = "0.8.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 wasmi-validation = { version = "0.3.0", default-features = false }
-jupiter-io = { git = "https://github.com/patractlabs/jupiter", default-features = false }
+jupiter-io = { path = "../../../../primitives/io", default-features = false }
 
 # Only used in benchmarking to generate random contract code
 rand = { version = "0.7.0", optional = true, default-features = false }
