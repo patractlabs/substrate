@@ -31,7 +31,7 @@ use sp_rpc::number;
 use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, Header as HeaderT},
-	DispatchError,
+	// DispatchError,
 };
 use std::convert::TryInto;
 use pallet_contracts_primitives::ContractExecResult;
@@ -109,6 +109,40 @@ pub struct RpcContractExecResult {
 	result: std::result::Result<RpcContractExecSuccess, DispatchError>,
 }
 
+impl From<sp_runtime::DispatchError> for DispatchError {
+	fn from(src: sp_runtime::DispatchError) -> Self {
+		match src {
+			sp_runtime::DispatchError::Other(s) => DispatchError::Other(s) ,
+			sp_runtime::DispatchError::CannotLookup => DispatchError::CannotLookup ,
+			sp_runtime::DispatchError::BadOrigin => DispatchError::BadOrigin ,
+			sp_runtime::DispatchError::Module { index, error, message } => DispatchError::Module { index, error, message } ,
+		}
+	}
+}
+
+use codec::{Decode, Encode};
+use sp_runtime::RuntimeDebug;
+#[derive(Eq, PartialEq, Clone, Copy, Encode, Decode, RuntimeDebug, Serialize, Deserialize)]
+pub enum DispatchError {
+	/// Some error occurred.
+	Other(#[codec(skip)] #[serde(skip_deserializing)] &'static str),
+	/// Failed to lookup some data.
+	CannotLookup,
+	/// A bad origin.
+	BadOrigin,
+	/// A custom error in a module.
+	Module {
+		/// Module index, matching the metadata module index.
+		index: u8,
+		/// Module specific error value.
+		error: u8,
+		/// Optional error message.
+		#[codec(skip)]
+		#[serde(skip_deserializing)]
+		message: Option<&'static str>,
+	},
+}
+
 impl From<ContractExecResult> for RpcContractExecResult {
 	fn from(r: ContractExecResult) -> Self {
 		match r.exec_result {
@@ -123,7 +157,7 @@ impl From<ContractExecResult> for RpcContractExecResult {
 			Err(err) => RpcContractExecResult {
 				gas_consumed: r.gas_consumed,
 				debug_message: String::new(),
-				result: Err(err.error),
+				result: Err(err.error.into()),
 			},
 		}
 	}
