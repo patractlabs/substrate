@@ -326,17 +326,41 @@ pub struct HostFnWeights<T: Trait> {
 	/// Weight per byte hashed by `seal_hash_blake2_128`.
 	pub hash_blake2_128_per_byte: Weight,
 
-    /// Weight of calling `seal_curve_bn_256_add`.
-	pub curve_bn_256_add: Weight,
+    /// Weight of calling `seal_curve_altbn_128_add`.
+	pub curve_altbn_128_add: Weight,
 
-    /// Weight of calling `seal_curve_bn_256_add_per_byte`.
-	pub curve_bn_256_add_per_byte: Weight,
+    /// Weight of calling `seal_curve_altbn_128_add_per_byte`.
+	pub curve_altbn_128_add_per_byte: Weight,
 
-    /// Weight of calling `seal_curve_bn_256_mul`.
-	pub curve_bn_256_mul: Weight,
+    /// Weight of calling `seal_curve_altbn_128_mul`.
+	pub curve_altbn_128_mul: Weight,
 
-    /// Weight of calling `seal_curve_bn_256_mul_per_byte`.
-	pub curve_bn_256_mul_per_byte: Weight,
+    /// Weight of calling `seal_curve_altbn_128_mul_per_byte`.
+	pub curve_altbn_128_mul_per_byte: Weight,
+
+    /// Weight of calling `seal_curve_altbn_128_pairing`.
+	pub curve_altbn_128_pairing: Weight,
+
+    /// Weight of calling `seal_curve_altbn_128_pairing_per_byte`.
+	pub curve_altbn_128_pairing_per_byte: Weight,
+
+    /// Weight of calling `seal_curve_bls12_381_add`.
+	pub curve_bls12_381_add: Weight,
+
+    /// Weight of calling `seal_curve_bls12_381_add_per_byte`.
+	pub curve_bls12_381_add_per_byte: Weight,
+
+    /// Weight of calling `seal_curve_bls12_381_mul`.
+	pub curve_bls12_381_mul: Weight,
+
+    /// Weight of calling `seal_curve_bls12_381_mul_per_byte`.
+	pub curve_bls12_381_mul_per_byte: Weight,
+
+    /// Weight of calling `seal_curve_bls12_381_pairing`.
+	pub curve_bls12_381_pairing: Weight,
+
+    /// Weight of calling `seal_curve_bls12_381_pairing_per_byte`.
+	pub curve_bls12_381_pairing_per_byte: Weight,
 
 	/// The type parameter is used in the default implementation.
 	pub _phantom: PhantomData<T>
@@ -557,10 +581,18 @@ impl<T: Trait> Default for HostFnWeights<T> {
 			hash_blake2_256_per_byte: cost_byte_batched!(seal_hash_blake2_256_per_kb),
 			hash_blake2_128: cost_batched!(seal_hash_blake2_128),
 			hash_blake2_128_per_byte: cost_byte_batched!(seal_hash_blake2_128_per_kb),
-            curve_bn_256_add: cost_batched!(seal_curve_bn_256_add),
-            curve_bn_256_add_per_byte: cost_batched!(seal_curve_bn_256_add_per_kb),
-            curve_bn_256_mul: cost_batched!(seal_curve_bn_256_mul),
-            curve_bn_256_mul_per_byte: cost_batched!(seal_curve_bn_256_mul_per_kb),
+            curve_altbn_128_add: cost_batched!(seal_curve_altbn_128_add),
+            curve_altbn_128_add_per_byte: cost_batched!(seal_curve_altbn_128_add_per_kb),
+            curve_altbn_128_mul: cost_batched!(seal_curve_altbn_128_mul),
+            curve_altbn_128_mul_per_byte: cost_batched!(seal_curve_altbn_128_mul_per_kb),
+            curve_altbn_128_pairing: cost_batched!(seal_curve_altbn_128_mul),
+            curve_altbn_128_pairing_per_byte: cost_batched!(seal_curve_altbn_128_pairing_per_kb),
+            curve_bls12_381_add: cost_batched!(seal_curve_bls12_381_add),
+            curve_bls12_381_add_per_byte: cost_batched!(seal_curve_bls12_381_add_per_kb),
+            curve_bls12_381_mul: cost_batched!(seal_curve_bls12_381_mul),
+            curve_bls12_381_mul_per_byte: cost_batched!(seal_curve_bls12_381_mul_per_kb),
+            curve_bls12_381_pairing: cost_batched!(seal_curve_bls12_381_mul),
+            curve_bls12_381_pairing_per_byte: cost_batched!(seal_curve_bls12_381_pairing_per_kb),
 			_phantom: PhantomData,
 		}
 	}
