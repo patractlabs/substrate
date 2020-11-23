@@ -54,7 +54,7 @@ impl<T: Trait> OutstandingAmount<T> {
 		if let Ok(imbalance) = T::Currency::withdraw(
 			account,
 			self.amount,
-			WithdrawReasons::FEE,
+			frame_support::traits::WithdrawReason::Fee.into(), // TODO recover this in future substrate
 			ExistenceRequirement::KeepAlive,
 		) {
 			// This should never fail. However, let's err on the safe side.
@@ -192,7 +192,7 @@ fn consider_case<T: Trait>(
 	let can_withdraw_rent = T::Currency::ensure_can_withdraw(
 		account,
 		dues_limited,
-		WithdrawReasons::FEE,
+		frame_support::traits::WithdrawReason::Fee.into(), // TODO recover this in future substrate
 		free_balance.saturating_sub(dues_limited),
 	)
 	.is_ok();
