@@ -1,4 +1,4 @@
-// Copyright 2018-2020 Parity Technologies (UK) Ltd.
+ // Copyright 2018-2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
 // Substrate is free software: you can redistribute it and/or modify
@@ -1399,11 +1399,11 @@ define_env!(Env, <E: Ext>,
     //                 data is placed. The function will write the result
     //                 directly into this buffer.
     seal_curve_altbn_128_add(
-        ctx, input_ptr: u32, input_len: u32, output_ptr: u32, output_len: u32, result_ptr: u32
+        ctx, input_ptr: u32, input_len: u32, output_ptr: u32
     ) => {
-        charge_gas(ctx, RuntimeToken::CurveAltBn128Add(input_len + output_len))?;
+        charge_gas(ctx, RuntimeToken::CurveAltBn128Add(input_len))?;
         compute_curve_on_intermediate_buffer(
-            ctx, altbn_128_add, input_ptr, input_len, output_ptr, output_len, result_ptr,
+            ctx, altbn_128_add, input_ptr, input_len, output_ptr,
         )
     },
     // Computes the ALTBN128 mul on the given input buffer.
@@ -1428,11 +1428,11 @@ define_env!(Env, <E: Ext>,
     //                 data is placed. The function will write the result
     //                 directly into this buffer.
     seal_curve_altbn_128_mul(
-        ctx, input_ptr: u32, input_len: u32, output_ptr: u32, output_len: u32, result_ptr: u32
+        ctx, input_ptr: u32, input_len: u32, output_ptr: u32
     ) => {
-        charge_gas(ctx, RuntimeToken::CurveAltBn128Mul(input_len + output_len))?;
+        charge_gas(ctx, RuntimeToken::CurveAltBn128Mul(input_len))?;
         compute_curve_on_intermediate_buffer(
-            ctx, altbn_128_mul, input_ptr, input_len, output_ptr, output_len, result_ptr,
+            ctx, altbn_128_mul, input_ptr, input_len, output_ptr,
         )
     },
     // Computes the ALTBN128 pairing on the given input buffer.
@@ -1490,11 +1490,11 @@ define_env!(Env, <E: Ext>,
     //                 data is placed. The function will write the result
     //                 directly into this buffer.
     seal_curve_bls12_381_add(
-        ctx, input_ptr: u32, input_len: u32, output_ptr: u32, output_len: u32, result_ptr: u32
+        ctx, input_ptr: u32, input_len: u32, output_ptr: u32
     ) => {
-        charge_gas(ctx, RuntimeToken::CurveBls12381Add(input_len + output_len))?;
+        charge_gas(ctx, RuntimeToken::CurveBls12381Add(input_len))?;
         compute_curve_on_intermediate_buffer(
-            ctx, bls12_381_add, input_ptr, input_len, output_ptr, output_len, result_ptr,
+            ctx, bls12_381_add, input_ptr, input_len, output_ptr,
         )
     },
     // Computes the ALTBN128 mul on the given input buffer.
@@ -1519,11 +1519,11 @@ define_env!(Env, <E: Ext>,
     //                 data is placed. The function will write the result
     //                 directly into this buffer.
     seal_curve_bls12_381_mul(
-        ctx, input_ptr: u32, input_len: u32, output_ptr: u32, output_len: u32, result_ptr: u32
+        ctx, input_ptr: u32, input_len: u32, output_ptr: u32
     ) => {
-        charge_gas(ctx, RuntimeToken::CurveBls12381Mul(input_len + output_len))?;
+        charge_gas(ctx, RuntimeToken::CurveBls12381Mul(input_len))?;
         compute_curve_on_intermediate_buffer(
-            ctx, bls12_381_mul, input_ptr, input_len, output_ptr, output_len, result_ptr,
+            ctx, bls12_381_mul, input_ptr, input_len, output_ptr,
         )
     },
     // Computes the ALTBN128 pairing on the given input buffer.
@@ -1547,7 +1547,7 @@ define_env!(Env, <E: Ext>,
     // - `result_ptr`: the pointer into the linear memory where the output
     //                 data is placed. The function will write the result
     //                 directly into this buffer.
-    seal_curve_altbn_128_pairing(
+    seal_curve_bls12_381_pairing(
         ctx, input_ptr: u32, input_len: u32, result_ptr: u32
     ) => {
         charge_gas(ctx, RuntimeToken::CurveBls12381Pairing(input_len))?;
@@ -1612,30 +1612,23 @@ where
 /// # Note
 ///
 /// The `input` and `output` buffers may overlap.
-fn compute_curve_on_intermediate_buffer<E, F>(
+fn compute_curve_on_intermediate_buffer<E, F, R>(
     ctx: &mut Runtime<E>,
     inflect_fn: F,
     input_ptr: u32,
     input_len: u32,
-    output_ptr: u32,
-    output_len: u32,
     result_ptr: u32,
 ) -> Result<(), sp_sandbox::HostError>
 where
     E: Ext,
-    F: FnOnce(&[u8], &mut [u8]) -> bool,
+    F: FnOnce(&[u8]) -> R,
+    R: AsRef<[u8]>,
 {
     // Copy g1 and g2 into supervisor memory.
     let input = read_sandbox_memory(ctx, input_ptr, input_len)?;
-    let mut output = read_sandbox_memory(ctx, output_ptr, output_len)?;
     // Write the resulting hash back into the sandboxed output buffer.
-    let result = if inflect_fn(&input, &mut output) {
-        [0]
-    } else {
-        [1]
-    };
-
-    write_sandbox_memory(ctx, result_ptr, &result)?;
+    let point = inflect_fn(&input);
+    write_sandbox_memory(ctx, result_ptr, &point.as_ref())?;
     Ok(())
 }
 
