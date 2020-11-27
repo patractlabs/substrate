@@ -1,4 +1,4 @@
- // Copyright 2018-2020 Parity Technologies (UK) Ltd.
+// Copyright 2018-2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
 // Substrate is free software: you can redistribute it and/or modify
@@ -566,15 +566,18 @@ where
     ) -> Result<(), sp_sandbox::HostError>
     where
         E: Ext,
-        F: FnOnce(&[u8]) -> R,
+        F: FnOnce(&[u8]) -> Option<R>,
         R: AsRef<[u8]>,
     {
         // Copy g1 and g2 into supervisor memory.
         let input = self.read_sandbox_memory(input_ptr, input_len)?;
         // Write the resulting hash back into the sandboxed output buffer.
-        let point = inflect_fn(&input);
-        self.write_sandbox_memory(result_ptr, &point.as_ref())?;
-        Ok(())
+        if let Some(point) = inflect_fn(&input) {
+            self.write_sandbox_memory(result_ptr, &point.as_ref())?;
+            Ok(())
+        } else {
+            Err(sp_sandbox::HostError)
+        }
     }
 
 	/// Stores a DispatchError returned from an Ext function into the trap_reason.
@@ -1536,14 +1539,16 @@ define_env!(Env, <E: Ext>,
     seal_curve_altbn_128_pairing(ctx, input_ptr: u32, input_len: u32, result_ptr: u32) => {
         ctx.charge_gas(RuntimeToken::CurveAltBn128Pairing(input_len))?;
         let input = ctx.read_sandbox_memory(input_ptr, input_len)?;
-        let result = if altbn_128_pairing(&input) {
-            [0]
+        if let Some(res) = altbn_128_pairing(&input) {
+            ctx.write_sandbox_memory(result_ptr, if res {
+                &[0]
+            } else {
+                &[1]
+            })?;
+            Ok(())
         } else {
-            [1]
-        };
-
-        ctx.write_sandbox_memory(result_ptr, &result)?;
-        Ok(())
+            Err(sp_sandbox::HostError)
+        }
     },
     // Computes the ALTBN128 add on the given input buffer.
     //
@@ -1623,12 +1628,15 @@ define_env!(Env, <E: Ext>,
     seal_curve_bls12_381_pairing(ctx, input_ptr: u32, input_len: u32, result_ptr: u32) => {
         ctx.charge_gas(RuntimeToken::CurveBls12381Pairing(input_len))?;
         let input = ctx.read_sandbox_memory(input_ptr, input_len)?;
-        let result = if bls12_381_pairing(&input) {
-            [0]
+        if let Some(res) = bls12_381_pairing(&input) {
+            ctx.write_sandbox_memory(result_ptr, if res {
+                &[0]
+            } else {
+                &[1]
+            })?;
+            Ok(())
         } else {
-            [1]
-        };
-        ctx.write_sandbox_memory(result_ptr, &result)?;
-        Ok(())
+            Err(sp_sandbox::HostError)
+        }
     },
 );
