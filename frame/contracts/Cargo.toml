@@ -71,4 +71,5 @@ runtime-benchmarks = [
 	"frame-benchmarking",
 	"rand",
 	"rand_pcg",
+    "jupiter-io/std",
 ]
