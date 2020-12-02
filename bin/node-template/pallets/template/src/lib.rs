@@ -9,7 +9,7 @@ use megaclite::arkworks;
 use frame_support::{decl_module, decl_storage, decl_event, decl_error, dispatch, traits::Get};
 use frame_system::ensure_signed;
 
-#[cfg(features = "runtime-benchmarks")]
+#[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
 #[cfg(test)]
@@ -75,8 +75,20 @@ decl_module! {
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn bls12_377_ops(origin) -> dispatch::DispatchResult {
+            arkworks::all_curve_three_operations_test::<arkworks::Bls12_377>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn bls12_381_pairing(origin) -> dispatch::DispatchResult {
             arkworks::test_pairings::<arkworks::Bls12_381>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn bls12_381_ops(origin) -> dispatch::DispatchResult {
+            arkworks::all_curve_three_operations_test::<arkworks::Bls12_381>();
             Ok(())
         }
 
@@ -87,14 +99,32 @@ decl_module! {
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn alt_bn128_ops(origin) -> dispatch::DispatchResult {
+            arkworks::all_curve_three_operations_test::<arkworks::Bn254>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn bw6_761_pairing(origin) -> dispatch::DispatchResult {
             arkworks::test_pairings::<arkworks::BW6_761>();
             Ok(())
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn bw6_761_ops(origin) -> dispatch::DispatchResult {
+            arkworks::all_curve_three_operations_test::<arkworks::BW6_761>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn cp6_782_pairing(origin) -> dispatch::DispatchResult {
             arkworks::test_pairings::<arkworks::CP6_782>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn cp6_782_ops(origin) -> dispatch::DispatchResult {
+            arkworks::all_curve_three_operations_test::<arkworks::CP6_782>();
             Ok(())
         }
 
