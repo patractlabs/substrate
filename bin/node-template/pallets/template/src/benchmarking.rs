@@ -21,12 +21,12 @@
 
 use super::*;
 
+use sp_std::prelude::*;
 use frame_system::RawOrigin;
 use frame_benchmarking::{benchmarks, whitelisted_caller};
 
 benchmarks! {
 	_ { }
-
 	bls12_377_pairing {
         let caller: T::AccountId = whitelisted_caller();
 	}: bls12_377_pairing(RawOrigin::Signed(caller.clone()))
@@ -42,8 +42,8 @@ benchmarks! {
     bls12_381_pairing {
         let caller: T::AccountId = whitelisted_caller();
 	}: bls12_381_pairing(RawOrigin::Signed(caller.clone()))
-	    verify {
-	    }
+	verify {
+	}
 
     bls12_381_ops {
         let caller: T::AccountId = whitelisted_caller();
@@ -66,8 +66,8 @@ benchmarks! {
     bw6_761_pairing {
         let caller: T::AccountId = whitelisted_caller();
 	}: bw6_761_pairing(RawOrigin::Signed(caller.clone()))
-	    verify {
-	    }
+    verify {
+	}
 
     bw6_761_ops {
         let caller: T::AccountId = whitelisted_caller();
@@ -78,8 +78,8 @@ benchmarks! {
     cp6_782_pairing {
         let caller: T::AccountId = whitelisted_caller();
 	}: cp6_782_pairing(RawOrigin::Signed(caller.clone()))
-	    verify {
-	    }
+    verify {
+	}
 
     cp6_782_ops {
         let caller: T::AccountId = whitelisted_caller();
