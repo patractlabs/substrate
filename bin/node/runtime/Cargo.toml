@@ -78,6 +78,8 @@ pallet-transaction-payment = { version = "2.0.0", default-features = false, path
 pallet-transaction-payment-rpc-runtime-api = { version = "2.0.0", default-features = false, path = "../../../frame/transaction-payment/rpc/runtime-api/" }
 pallet-vesting = { version = "2.0.0", default-features = false, path = "../../../frame/vesting" }
 
+pallet-template = { version = "2.0.0", default-features = false, path = "../../node-template/pallets/template"}
+
 [build-dependencies]
 substrate-wasm-builder = { version = "3.0.0", path = "../../../utils/wasm-builder" }
 
