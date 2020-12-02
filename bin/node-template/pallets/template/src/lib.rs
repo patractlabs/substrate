@@ -4,6 +4,8 @@
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
 /// https://substrate.dev/docs/en/knowledgebase/runtime/frame
 
+use megaclite::arkworks;
+
 use frame_support::{decl_module, decl_storage, decl_event, decl_error, dispatch, traits::Get};
 use frame_system::ensure_signed;
 
@@ -65,6 +67,36 @@ decl_module! {
 
 		// Events must be initialized if they are used by the pallet.
 		fn deposit_event() = default;
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn bls12_377_pairing(origin) -> dispatch::DispatchResult {
+            arkworks::test_pairings::<arkworks::Bls12_377>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn bls12_381_pairing(origin) -> dispatch::DispatchResult {
+            arkworks::test_pairings::<arkworks::Bls12_381>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn alt_bn128_pairing(origin) -> dispatch::DispatchResult {
+            arkworks::test_pairings::<arkworks::Bn254>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn bw6_761_pairing(origin) -> dispatch::DispatchResult {
+            arkworks::test_pairings::<arkworks::BW6_761>();
+            Ok(())
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn cp6_782_pairing(origin) -> dispatch::DispatchResult {
+            arkworks::test_pairings::<arkworks::CP6_782>();
+            Ok(())
+        }
 
 		/// An example dispatchable that takes a singles value as a parameter, writes the value to
 		/// storage and emits an event. This function must be dispatched by a signed extrinsic.
