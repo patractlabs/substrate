@@ -18,7 +18,7 @@ function bm() {
     ./target/release/node-template \
         benchmark \
         -p template \
-        -e "${@:0:1}"
+        -e "$1" "${@:2}" | grep 'Time ~=' -m 1
 }
 
 
@@ -31,9 +31,14 @@ function main() {
         do
             echo "--->${q}"
             echo -n "Wasm:   "
-            bm wasm_"${p}"_"${q}" --execution Wasm --wasm-execution Compiled | grep 'Time ~=' -m 1
-            echo -n "Native: "
-            bm wasm_"${p}"_"${q}" --execution Native | grep 'Time ~=' -m 1
+            d=wasm_"${p}"_"${q}"
+            bm "$d" '--execution=Wasm' '--wasm-execution=Compiled' "-r=1000" # '|' 'grep' "'Time ~='" '-m' '1'
+
+            # "RuIn" means the `runtime_interface` implementation in test
+            echo -n "RuIn:   "
+            d=native_"${p}"_"${q}"
+            bm "$d" '--execution=Wasm' '--wasm-execution=Compiled' "-r=1000" # '|' 'grep' "'Time ~='" '-m' '1'
+#            bm wasm_"${p}"_"${q}" --execution Native | grep 'Time ~=' -m 1
         done
         echo ""
         echo ""
