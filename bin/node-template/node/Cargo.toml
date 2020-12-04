@@ -53,8 +53,7 @@ node-template-runtime = { version = "2.0.0", path = "../runtime" }
 
 [dependencies.jupiter-io]
 package = "jupiter-io"
-git = "https://github.com/patractlabs/jupiter.git"
-branch = "features/curve-benchmark"
+path = "../io"
 
 [build-dependencies]
 substrate-build-script-utils = { version = "2.0.0", path = "../../../utils/build-script-utils" }
