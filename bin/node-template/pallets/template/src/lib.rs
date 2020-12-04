@@ -3,9 +3,6 @@
 /// Edit this file to define custom logic or remove it if it is not needed.
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
 /// https://substrate.dev/docs/en/knowledgebase/runtime/frame
-
-use megaclite::arkworks;
-
 use frame_support::{decl_module, decl_storage, decl_event, decl_error, dispatch, traits::Get};
 use frame_system::ensure_signed;
 
@@ -68,64 +65,216 @@ decl_module! {
 		// Events must be initialized if they are used by the pallet.
 		fn deposit_event() = default;
 
+
+        // bls12_377
+
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn bls12_377_pairing(origin) -> dispatch::DispatchResult {
-            arkworks::test_pairings::<arkworks::Bls12_377>();
-            Ok(())
+        pub fn wasm_bls12_377_add(origin) {
+            megaclite::tests::bls12_377_add();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn bls12_377_ops(origin) -> dispatch::DispatchResult {
-            arkworks::all_curve_three_operations_test::<arkworks::Bls12_377>();
-            Ok(())
+        pub fn wasm_bls12_377_mul(origin) {
+            megaclite::tests::bls12_377_mul();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn bls12_381_pairing(origin) -> dispatch::DispatchResult {
-            arkworks::test_pairings::<arkworks::Bls12_381>();
-            Ok(())
+        pub fn wasm_bls12_377_pairing_two(origin) {
+            megaclite::tests::bls12_377_pairing();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn bls12_381_ops(origin) -> dispatch::DispatchResult {
-            arkworks::all_curve_three_operations_test::<arkworks::Bls12_381>();
-            Ok(())
+        pub fn wasm_bls12_377_pairing_six(origin) {
+            megaclite::tests::bls12_377_pairing_six();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn alt_bn128_pairing(origin) -> dispatch::DispatchResult {
-            arkworks::test_pairings::<arkworks::Bn254>();
-            Ok(())
+        pub fn native_bls12_377_add(origin) {
+            jupiter_io::zk_snarks::bls12_377_add();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn alt_bn128_ops(origin) -> dispatch::DispatchResult {
-            arkworks::all_curve_three_operations_test::<arkworks::Bn254>();
-            Ok(())
+        pub fn native_bls12_377_mul(origin) {
+            jupiter_io::zk_snarks::bls12_377_mul();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn bw6_761_pairing(origin) -> dispatch::DispatchResult {
-            arkworks::test_pairings::<arkworks::BW6_761>();
-            Ok(())
+        pub fn native_bls12_377_pairing_two(origin) {
+            jupiter_io::zk_snarks::bls12_377_pairing_two();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn bw6_761_ops(origin) -> dispatch::DispatchResult {
-            arkworks::all_curve_three_operations_test::<arkworks::BW6_761>();
-            Ok(())
+        pub fn native_bls12_377_pairing_six(origin) {
+            jupiter_io::zk_snarks::bls12_377_pairing_six();
+        }
+
+
+        // bls12_381
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bls12_381_add(origin) {
+            megaclite::tests::bls12_381_add();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn cp6_782_pairing(origin) -> dispatch::DispatchResult {
-            arkworks::test_pairings::<arkworks::CP6_782>();
-            Ok(())
+        pub fn wasm_bls12_381_mul(origin) {
+            megaclite::tests::bls12_381_mul();
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn cp6_782_ops(origin) -> dispatch::DispatchResult {
-            arkworks::all_curve_three_operations_test::<arkworks::CP6_782>();
-            Ok(())
+        pub fn wasm_bls12_381_pairing_two(origin) {
+            megaclite::tests::bls12_381_pairing();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bls12_381_pairing_six(origin) {
+            megaclite::tests::bls12_381_pairing_six();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bls12_381_add(origin) {
+            jupiter_io::zk_snarks::bls12_381_add();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bls12_381_mul(origin) {
+            jupiter_io::zk_snarks::bls12_381_mul();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bls12_381_pairing_two(origin) {
+            jupiter_io::zk_snarks::bls12_381_pairing_two();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bls12_381_pairing_six(origin) {
+            jupiter_io::zk_snarks::bls12_381_pairing_six();
+        }
+
+        // bn254
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bn254_add(origin) {
+            megaclite::tests::bn254_add();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bn254_mul(origin) {
+            megaclite::tests::bn254_mul();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bn254_pairing_two(origin) {
+            megaclite::tests::bn254_pairing();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bn254_pairing_six(origin) {
+            megaclite::tests::bn254_pairing_six();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bn254_add(origin) {
+            jupiter_io::zk_snarks::bn254_add();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bn254_mul(origin) {
+            jupiter_io::zk_snarks::bn254_mul();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bn254_pairing_two(origin) {
+            jupiter_io::zk_snarks::bn254_pairing_two();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bn254_pairing_six(origin) {
+            jupiter_io::zk_snarks::bn254_pairing_six();
+        }
+
+        // bw6_781
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bw6_761_add(origin) {
+            megaclite::tests::bw6_761_add();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bw6_761_mul(origin) {
+            megaclite::tests::bw6_761_mul();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bw6_761_pairing_two(origin) {
+            megaclite::tests::bw6_761_pairing();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bw6_761_pairing_six(origin) {
+            megaclite::tests::bw6_761_pairing_six();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bw6_761_add(origin) {
+            jupiter_io::zk_snarks::bw6_761_add();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bw6_761_mul(origin) {
+            jupiter_io::zk_snarks::bw6_761_mul();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bw6_761_pairing_two(origin) {
+            jupiter_io::zk_snarks::bw6_761_pairing_two();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bw6_761_pairing_six(origin) {
+            jupiter_io::zk_snarks::bw6_761_pairing_six();
+        }
+
+        // cp6_782
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_cp6_782_add(origin) {
+            megaclite::tests::cp6_782_add();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_cp6_782_mul(origin) {
+            megaclite::tests::cp6_782_mul();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_cp6_782_pairing_two(origin) {
+            megaclite::tests::cp6_782_pairing();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_cp6_782_pairing_six(origin) {
+            megaclite::tests::cp6_782_pairing_six();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_cp6_782_add(origin) {
+            jupiter_io::zk_snarks::cp6_782_add();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_cp6_782_mul(origin) {
+            jupiter_io::zk_snarks::cp6_782_mul();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_cp6_782_pairing_two(origin) {
+            jupiter_io::zk_snarks::cp6_782_pairing_two();
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_cp6_782_pairing_six(origin) {
+            jupiter_io::zk_snarks::cp6_782_pairing_six();
         }
 
 		/// An example dispatchable that takes a singles value as a parameter, writes the value to
