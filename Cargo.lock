@@ -2763,6 +2763,15 @@ name = "jupiter-io"
 version = "0.2.0"
 dependencies = [
  "megaclite-arkworks",
+ "sp-runtime-interface 2.0.0",
+]
+
+[[package]]
+name = "jupiter-io"
+version = "0.2.0"
+source = "git+https://github.com/patractlabs/jupiter.git?branch=features/curve-benchmark#4217b0c3f4a806ca6045d4bf32ba9b9ded70f531"
+dependencies = [
+ "megaclite-arkworks",
  "paste 1.0.3",
  "sp-runtime-interface 2.0.0 (git+https://github.com/paritytech/substrate.git)",
 ]
@@ -4097,6 +4106,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-benchmarking-cli",
  "jsonrpc-core",
+ "jupiter-io 0.2.0 (git+https://github.com/patractlabs/jupiter.git?branch=features/curve-benchmark)",
  "node-template-runtime",
  "pallet-transaction-payment-rpc",
  "sc-basic-authorship",
@@ -5093,7 +5103,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "jupiter-io",
+ "jupiter-io 0.2.0",
  "megaclite-arkworks",
  "parity-scale-codec",
  "paste 1.0.3",
