@@ -16,7 +16,7 @@ native_executor_instance!(
 	pub Executor,
 	node_template_runtime::api::dispatch,
 	node_template_runtime::native_version,
-	frame_benchmarking::benchmarking::HostFunctions,
+	(frame_benchmarking::benchmarking::HostFunctions, jupiter_io::zk_snarks::HostFunctions),
 );
 
 type FullClient = sc_service::TFullClient<Block, RuntimeApi, Executor>;
