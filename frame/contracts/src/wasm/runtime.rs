@@ -1268,9 +1268,9 @@ define_env!(Env, <E: Ext>,
 		        },
 		        4 => {
 		        	if let Ok(target_utf8) = target_result {
-		                debug::debug!(target: target_utf8, "📋  {}", data_utf8);
+		                debug::debug!(target: target_utf8, "📋 {}", data_utf8);
 		            } else {
-		                debug::debug!("📋  {}", data_utf8);
+		                debug::debug!("📋 {}", data_utf8);
 		            }
 		        },
 		        5 => {
