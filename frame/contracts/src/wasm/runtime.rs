@@ -25,7 +25,7 @@ use crate::{
 use sp_sandbox;
 use parity_wasm::elements::ValueType;
 use frame_system;
-use frame_support::dispatch::DispatchError;
+use frame_support::{debug, dispatch::DispatchError};
 use sp_std::prelude::*;
 use codec::{Decode, Encode};
 use sp_runtime::traits::SaturatedConversion;
@@ -1233,6 +1233,55 @@ define_env!(Env, <E: Ext>,
 		let data = read_sandbox_memory(ctx, str_ptr, str_len)?;
 		if let Ok(utf8) = core::str::from_utf8(&data) {
 			sp_runtime::print(utf8);
+		}
+		Ok(())
+	},
+
+	// Outputs utf8 encoded string logs from the data buffer.
+	// level: https://docs.rs/log/0.4.11/log/enum.Level.html
+	seal_log(ctx, level: u32, target_ptr: u32, target_len: u32, str_ptr: u32, str_len: u32) => {
+	    let target = read_sandbox_memory(ctx, target_ptr, target_len)?;
+	    let target_result = core::str::from_utf8(&target);
+		let data = read_sandbox_memory(ctx, str_ptr, str_len)?;
+		if let Ok(data_utf8) = core::str::from_utf8(&data) {
+		    match level {
+		        1 => {
+		            if let Ok(target_utf8) = target_result {
+		                debug::error!(target: target_utf8, "❌️ {}", data_utf8);
+		            } else {
+		                debug::error!("❌️ {}", data_utf8);
+		            }
+		        },
+		        2 => {
+		            if let Ok(target_utf8) = target_result {
+		                debug::warn!(target: target_utf8, "⚠️  {}", data_utf8);
+		            } else {
+		                debug::warn!("⚠️  {}", data_utf8);
+		            }
+		        },
+		        3 => {
+		        	if let Ok(target_utf8) = target_result {
+		                debug::info!(target: target_utf8, "❤️  {}", data_utf8);
+		            } else {
+		                debug::info!("❤️  {}", data_utf8);
+		            }
+		        },
+		        4 => {
+		        	if let Ok(target_utf8) = target_result {
+		                debug::debug!(target: target_utf8, "📋  {}", data_utf8);
+		            } else {
+		                debug::debug!("📋  {}", data_utf8);
+		            }
+		        },
+		        5 => {
+		        	if let Ok(target_utf8) = target_result {
+		                debug::trace!(target: target_utf8, "🏷  {}", data_utf8);
+		            } else {
+		                debug::trace!("🏷  {}", data_utf8);
+		            }
+		        },
+		        _ => (),
+		    }
 		}
 		Ok(())
 	},
