@@ -22,7 +22,7 @@ package = "jupiter-io"
 path = "../../io"
 default-features = false
 
-[dependencies.megaclite]
+[dependencies.curve]
 package = "megaclite-arkworks"
 git = "https://github.com/patractlabs/megaclite.git"
 features = ["tests"]

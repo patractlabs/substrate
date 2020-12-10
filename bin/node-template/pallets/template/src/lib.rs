@@ -70,22 +70,27 @@ decl_module! {
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bls12_377_add(origin) {
-            megaclite::tests::bls12_377_add();
+            curve::tests::add(0x2a);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bls12_377_mul(origin) {
-            megaclite::tests::bls12_377_mul();
+            curve::tests::mul(0x2a);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bls12_377_pairing_two(origin) {
-            megaclite::tests::bls12_377_pairing();
+            curve::tests::pairing(0x2a);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bls12_377_pairing_six(origin) {
-            megaclite::tests::bls12_377_pairing_six();
+            curve::tests::pairing_six(0x2a);
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bls12_377_verify(origin) {
+            curve::tests::verify(0x2a);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
@@ -108,28 +113,39 @@ decl_module! {
             jupiter_io::zk_snarks::bls12_377_pairing_six();
         }
 
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bls12_377_verify(origin) {
+            jupiter_io::zk_snarks::bls12_377_verify();
+        }
+
 
         // bls12_381
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bls12_381_add(origin) {
-            megaclite::tests::bls12_381_add();
+            curve::tests::add(0x2b);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bls12_381_mul(origin) {
-            megaclite::tests::bls12_381_mul();
+            curve::tests::mul(0x2b);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bls12_381_pairing_two(origin) {
-            megaclite::tests::bls12_381_pairing();
+            curve::tests::pairing(0x2b);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bls12_381_pairing_six(origin) {
-            megaclite::tests::bls12_381_pairing_six();
+            curve::tests::pairing_six(0x2b);
         }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bls12_381_verify(origin) {
+            curve::tests::verify(0x2b);
+        }
+
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn native_bls12_381_add(origin) {
@@ -151,26 +167,36 @@ decl_module! {
             jupiter_io::zk_snarks::bls12_381_pairing_six();
         }
 
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bls12_381_verify(origin) {
+            jupiter_io::zk_snarks::bls12_381_verify();
+        }
+
         // bn254
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bn254_add(origin) {
-            megaclite::tests::bn254_add();
+            curve::tests::add(0x2c);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bn254_mul(origin) {
-            megaclite::tests::bn254_mul();
+            curve::tests::mul(0x2c);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bn254_pairing_two(origin) {
-            megaclite::tests::bn254_pairing();
+            curve::tests::pairing(0x2c);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bn254_pairing_six(origin) {
-            megaclite::tests::bn254_pairing_six();
+            curve::tests::pairing_six(0x2c);
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bn254_verify(origin) {
+            curve::tests::verify(0x2c);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
@@ -193,26 +219,36 @@ decl_module! {
             jupiter_io::zk_snarks::bn254_pairing_six();
         }
 
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn native_bn254_verify(origin) {
+            jupiter_io::zk_snarks::bn254_verify();
+        }
+
         // bw6_781
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bw6_761_add(origin) {
-            megaclite::tests::bw6_761_add();
+            curve::tests::add(0x2d);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bw6_761_mul(origin) {
-            megaclite::tests::bw6_761_mul();
+            curve::tests::mul(0x2d);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bw6_761_pairing_two(origin) {
-            megaclite::tests::bw6_761_pairing();
+            curve::tests::pairing(0x2d);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
         pub fn wasm_bw6_761_pairing_six(origin) {
-            megaclite::tests::bw6_761_pairing_six();
+            curve::tests::pairing_six(0x2d);
+        }
+
+        #[weight = 10_000 + T::DbWeight::get().writes(1)]
+        pub fn wasm_bw6_761_verify(origin) {
+            curve::tests::verify(0x2d);
         }
 
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
@@ -235,47 +271,11 @@ decl_module! {
             jupiter_io::zk_snarks::bw6_761_pairing_six();
         }
 
-        // cp6_782
-
         #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn wasm_cp6_782_add(origin) {
-            megaclite::tests::cp6_782_add();
+        pub fn native_bw6_761_verify(origin) {
+            jupiter_io::zk_snarks::bw6_761_verify();
         }
 
-        #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn wasm_cp6_782_mul(origin) {
-            megaclite::tests::cp6_782_mul();
-        }
-
-        #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn wasm_cp6_782_pairing_two(origin) {
-            megaclite::tests::cp6_782_pairing();
-        }
-
-        #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn wasm_cp6_782_pairing_six(origin) {
-            megaclite::tests::cp6_782_pairing_six();
-        }
-
-        #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn native_cp6_782_add(origin) {
-            jupiter_io::zk_snarks::cp6_782_add();
-        }
-
-        #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn native_cp6_782_mul(origin) {
-            jupiter_io::zk_snarks::cp6_782_mul();
-        }
-
-        #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn native_cp6_782_pairing_two(origin) {
-            jupiter_io::zk_snarks::cp6_782_pairing_two();
-        }
-
-        #[weight = 10_000 + T::DbWeight::get().writes(1)]
-        pub fn native_cp6_782_pairing_six(origin) {
-            jupiter_io::zk_snarks::cp6_782_pairing_six();
-        }
 
 		/// An example dispatchable that takes a singles value as a parameter, writes the value to
 		/// storage and emits an event. This function must be dispatched by a signed extrinsic.

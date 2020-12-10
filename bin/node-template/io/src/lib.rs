@@ -22,6 +22,10 @@ pub trait ZkSnarks {
         curve::tests::pairing_six(0x2a);
     }
 
+    fn bls12_377_verify() {
+        curve::tests::verify(0x2a);
+    }
+
     fn bls12_381_add() {
         curve::tests::add(0x2b);
     }
@@ -36,6 +40,10 @@ pub trait ZkSnarks {
 
     fn bls12_381_pairing_six() {
         curve::tests::pairing_six(0x2b);
+    }
+
+    fn bls12_381_verify() {
+        curve::tests::verify(0x2b);
     }
 
     fn bn254_add() {
@@ -54,6 +62,10 @@ pub trait ZkSnarks {
         curve::tests::pairing_six(0x2c);
     }
 
+    fn bn254_verify() {
+        curve::tests::verify(0x2c);
+    }
+
     fn bw6_761_add() {
         curve::tests::add(0x2d);
     }
@@ -68,5 +80,9 @@ pub trait ZkSnarks {
 
     fn bw6_761_pairing_six() {
         curve::tests::pairing_six(0x2d);
+    }
+
+    fn bw6_761_verify() {
+        curve::tests::verify(0x2d);
     }
 }
