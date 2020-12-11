@@ -32,6 +32,10 @@ sp-std = { version = "2.0.0", default-features = false, path = "../../primitives
 sp-sandbox = { version = "0.8.0", default-features = false, path = "../../primitives/sandbox" }
 wasmi-validation = { version = "0.3.0", default-features = false }
 
+# Jupiter deps
+jupiter-io = { path = "../../../../primitives/io", default-features = false }
+curve = { package = "megaclite-arkworks", git = "https://github.com/patractlabs/megaclite.git", default-features = false }
+
 # Only used in benchmarking to generate random contract code
 rand = { version = "0.7.0", optional = true, default-features = false }
 rand_pcg = { version = "0.2.1", optional = true }
@@ -63,6 +67,7 @@ std = [
 	"wasmi-validation/std",
 	"pallet-contracts-primitives/std",
 	"pallet-contracts-proc-macro/full",
+    "jupiter-io/std"
 ]
 runtime-benchmarks = [
 	"frame-benchmarking",
