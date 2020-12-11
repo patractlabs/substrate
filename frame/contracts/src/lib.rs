@@ -395,6 +395,8 @@ decl_error! {
 		/// in this error. Note that this usually  shouldn't happen as deploying such contracts
 		/// is rejected.
 		NoChainExtension,
+        /// Invalid function id
+        InvalidFunctionId,
 	}
 }
 
