@@ -238,9 +238,7 @@ where
 			Verdict::Exempt => return Some(ContractInfo::Alive(alive_contract_info)),
 			Verdict::Kill => {
 				<ContractInfoOf<T>>::remove(account);
-				child::kill_storage(
-					&alive_contract_info.child_trie_info(),
-				);
+				child::kill_storage(&alive_contract_info.child_trie_info());
 				<Module<T>>::deposit_event(RawEvent::Evicted(account.clone(), false));
 				None
 			}
@@ -261,9 +259,7 @@ where
 				let tombstone_info = ContractInfo::Tombstone(tombstone);
 				<ContractInfoOf<T>>::insert(account, &tombstone_info);
 
-				child::kill_storage(
-					&alive_contract_info.child_trie_info(),
-				);
+				child::kill_storage(&alive_contract_info.child_trie_info());
 
 				<Module<T>>::deposit_event(RawEvent::Evicted(account.clone(), true));
 				Some(tombstone_info)
