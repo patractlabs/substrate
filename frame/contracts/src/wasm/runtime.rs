@@ -280,7 +280,7 @@ fn has_duplicates<T: PartialEq + AsRef<[u8]>>(items: &mut Vec<T>) -> bool {
 
 /// Can only be used for one call.
 pub struct Runtime<'a, E: Ext + 'a> {
-	ext: &'a mut E,
+	pub ext: &'a mut E,
 	input_data: Option<Vec<u8>>,
 	schedule: &'a Schedule<E::T>,
 	memory: sp_sandbox::Memory,

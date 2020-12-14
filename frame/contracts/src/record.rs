@@ -3,6 +3,7 @@ use sp_core::hexdisplay::HexDisplay;
 use sp_std::cmp::max;
 use sp_std::fmt;
 use sp_std::fmt::Formatter;
+use sp_std::collections::btree_map::BTreeMap;
 
 pub struct HexVec(Vec<u8>);
 
@@ -28,6 +29,7 @@ pub struct NestedRuntime {
     value: u128,
     gas_limit: Gas,
     gas_left: Gas,
+    seal_trace: Vec<String>,
     // trap_reason: Option<TrapReason>,
 }
 
@@ -56,14 +58,16 @@ impl NestedRuntime {
             },
             gas_limit,
             gas_left: gas_limit,
+            seal_trace: vec![],
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Record {
-    pub deepest: usize,
-    pub runtime: Vec<NestedRuntime>,
+    deepest: usize,
+    runtime: Vec<NestedRuntime>,
+    seal_count: BTreeMap<String, u8>,
 }
 
 impl Record {
@@ -71,6 +75,7 @@ impl Record {
         Record {
             deepest: 0,
             runtime: vec![],
+            seal_count: BTreeMap::new(),
         }
     }
 
@@ -92,13 +97,25 @@ impl Record {
             .expect("After instantiate, Record::runtime shouldn't be empty")
             .self_account = self_account;
     }
+
+    pub fn update_seal_trace(&mut self, host_func: &str, depth: usize) {
+        self.runtime
+            .get_mut(depth)
+            .expect("After `nested`, the index should be exist")
+            .seal_trace.push(host_func.to_string());
+        if let Some(count) = self.seal_count.get_mut(&host_func.to_string()){
+            *count = count.checked_add(1).unwrap();
+        } else{
+            self.seal_count.insert(host_func.to_string(), 1);
+        }
+    }
 }
 
 environmental::environmental!(record: Record);
 
 pub fn set_and_run_with_record<F, R>(record: &mut Record, f: F) -> R
-where
-    F: FnOnce() -> R,
+    where
+        F: FnOnce() -> R,
 {
     record::using(record, f)
 }

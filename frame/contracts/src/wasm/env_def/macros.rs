@@ -133,6 +133,10 @@ macro_rules! define_func {
 					sp_core::crypto::UncheckedFrom<<E::T as frame_system::Config>::Hash> +
 						AsRef<[u8]>
 		{
+			$crate::record::with_record(|r|
+				r.update_seal_trace(stringify!($name), $ctx.ext.get_depth() - 1)
+			);
+
 			#[allow(unused)]
 			let mut args = args.iter();
 
