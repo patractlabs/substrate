@@ -15,20 +15,21 @@
 // along with Substrate. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::{
-	CodeHash, ConfigCache, Event, RawEvent, Config, Module as Contracts,
-	TrieId, BalanceOf, ContractInfo, gas::GasMeter, rent::Rent, storage::{self, Storage},
-	Error, ContractInfoOf
+    CodeHash, ConfigCache, Event, RawEvent, Config, Module as Contracts, TrieId, BalanceOf,
+    ContractInfo, gas::GasMeter, rent::Rent, storage::{self, Storage}, Error, ContractInfoOf,
+    record::{NestedRuntime, with_record}, Gas
 };
 use sp_core::crypto::UncheckedFrom;
 use sp_std::prelude::*;
 use sp_runtime::traits::{Bounded, Zero, Convert, Saturating};
 use frame_support::{
-	dispatch::DispatchError,
-	traits::{ExistenceRequirement, Currency, Time, Randomness},
-	weights::Weight,
-	ensure, StorageMap,
+    dispatch::DispatchError,
+    traits::{ExistenceRequirement, Currency, Time, Randomness},
+    weights::Weight,
+    ensure, StorageMap,
 };
 use pallet_contracts_primitives::{ErrorOrigin, ExecError, ExecReturnValue, ExecResult, ReturnFlags};
+use codec::Encode;
 
 pub type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 pub type MomentOf<T> = <<T as Config>::Time as Time>::Moment;
@@ -165,8 +166,11 @@ pub trait Ext {
 	/// Returns the maximum allowed size of a storage item.
 	fn max_value_size(&self) -> u32;
 
-	/// Returns the price for the specified amount of weight.
-	fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T>;
+    /// Returns the price for the specified amount of weight.
+    fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T>;
+
+    /// Returns the depth for current execution
+    fn get_depth(&self) -> usize;
 }
 
 /// Loader is a companion of the `Vm` trait. It loads an appropriate abstract
@@ -255,17 +259,47 @@ where
 		}
 	}
 
-	/// Make a call to the specified address, optionally transferring some funds.
-	pub fn call(
-		&mut self,
-		dest: T::AccountId,
-		value: BalanceOf<T>,
-		gas_meter: &mut GasMeter<T>,
-		input_data: Vec<u8>,
-	) -> ExecResult {
-		if self.depth == self.config.max_depth as usize {
-			Err(Error::<T>::MaxCallDepthReached)?
-		}
+    fn record_nested(&mut self, input_data: Vec<u8>, dest: Option<T::AccountId>, gas_left: Gas, value: BalanceOf<T>) {
+        let (selector, args) = if input_data.len() > 4 {
+            (Some(input_data[0..4].to_vec().into()), Some(input_data[4..].to_vec().into()))
+        } else if input_data.len() == 4 {
+            (Some(input_data[0..4].to_vec().into()), None)
+        } else if input_data.len() > 0 {
+            (None, Some(input_data.to_owned().into()))
+        } else {
+            (None, None)
+        };
+        let dest = if let Some(account) = dest {
+            Some(account.encode().into())
+        } else {
+            None
+        };
+        with_record(|r| r.nested(
+            NestedRuntime::new(
+                self.depth + 1,
+                self.self_account.clone().encode().into(),
+                dest,
+                selector,
+                args,
+                value.encode(),
+                gas_left,
+            ))
+        );
+    }
+
+    /// Make a call to the specified address, optionally transferring some funds.
+    pub fn call(
+        &mut self,
+        dest: T::AccountId,
+        value: BalanceOf<T>,
+        gas_meter: &mut GasMeter<T>,
+        input_data: Vec<u8>,
+    ) -> ExecResult {
+        self.record_nested(input_data.clone(), Some(dest.clone()), gas_meter.gas_left(), value);
+
+        if self.depth == self.config.max_depth as usize {
+            Err(Error::<T>::MaxCallDepthReached)?
+        }
 
 		// Assumption: `collect` doesn't collide with overlay because
 		// `collect` will be done on first call and destination contract and balance
@@ -305,21 +339,24 @@ where
 		})
 	}
 
-	pub fn instantiate(
-		&mut self,
-		endowment: BalanceOf<T>,
-		gas_meter: &mut GasMeter<T>,
-		code_hash: &CodeHash<T>,
-		input_data: Vec<u8>,
-		salt: &[u8],
-	) -> Result<(T::AccountId, ExecReturnValue), ExecError> {
-		if self.depth == self.config.max_depth as usize {
-			Err(Error::<T>::MaxCallDepthReached)?
-		}
+    pub fn instantiate(
+        &mut self,
+        endowment: BalanceOf<T>,
+        gas_meter: &mut GasMeter<T>,
+        code_hash: &CodeHash<T>,
+        input_data: Vec<u8>,
+        salt: &[u8],
+    ) -> Result<(T::AccountId, ExecReturnValue), ExecError> {
+        self.record_nested(input_data.clone(), None, gas_meter.gas_left(), endowment);
 
-		let transactor_kind = self.transactor_kind();
-		let caller = self.self_account.clone();
-		let dest = Contracts::<T>::contract_address(&caller, code_hash, salt);
+        if self.depth == self.config.max_depth as usize {
+            Err(Error::<T>::MaxCallDepthReached)?
+        }
+
+        let transactor_kind = self.transactor_kind();
+        let caller = self.self_account.clone();
+        let dest = Contracts::<T>::contract_address(&caller, code_hash, salt);
+        with_record(|r| r.set_self_account(Some(dest.clone().encode().into())));
 
 		// TrieId has not been generated yet and storage is empty since contract is new.
 		//
@@ -688,9 +725,13 @@ where
 		self.ctx.config.max_value_size
 	}
 
-	fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T> {
-		T::WeightPrice::convert(weight)
-	}
+    fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T> {
+        T::WeightPrice::convert(weight)
+    }
+
+    fn get_depth(&self) -> usize {
+        self.ctx.depth
+    }
 }
 
 fn deposit_event<T: Config>(

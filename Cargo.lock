@@ -4496,6 +4496,7 @@ name = "pallet-contracts"
 version = "2.0.0"
 dependencies = [
  "assert_matches",
+ "environmental",
  "frame-benchmarking 2.0.0 (git+https://github.com/paritytech/substrate)",
  "frame-support 2.0.0 (git+https://github.com/paritytech/substrate)",
  "frame-system 2.0.0 (git+https://github.com/paritytech/substrate)",
