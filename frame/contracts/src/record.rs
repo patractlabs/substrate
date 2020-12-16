@@ -4,6 +4,7 @@ use sp_std::cmp::max;
 use sp_std::fmt;
 use sp_std::fmt::Formatter;
 use sp_std::collections::btree_map::BTreeMap;
+use derivative::Derivative;
 
 pub struct HexVec(Vec<u8>);
 
@@ -19,8 +20,10 @@ impl From<Vec<u8>> for HexVec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct NestedRuntime {
+    #[derivative(Debug = "ignore")]
     depth: usize,
     caller: HexVec,
     self_account: Option<HexVec>,
@@ -57,10 +60,18 @@ impl NestedRuntime {
     }
 }
 
+struct NestedRuntimeWrapper(NestedRuntime);
+
+impl fmt::Debug for NestedRuntimeWrapper {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {:#?}", self.0.depth, self.0)
+    }
+}
+
 #[derive(Debug)]
 pub struct Record {
     deepest: usize,
-    runtime: Vec<NestedRuntime>,
+    runtime: Vec<NestedRuntimeWrapper>,
     seal_count: BTreeMap<String, u8>,
 }
 
@@ -75,37 +86,37 @@ impl Record {
 
     pub fn nested(&mut self, runtime: NestedRuntime) {
         self.deepest = max(self.deepest, runtime.depth);
-        self.runtime.push(runtime);
+        self.runtime.push(NestedRuntimeWrapper(runtime));
     }
 
     pub fn set_gas_left(&mut self, left: Gas, depth: usize) {
         self.runtime
             .get_mut(depth)
             .expect("After `nested`, the index should be exist")
-            .gas_left = left;
+            .0.gas_left = left;
     }
 
     pub fn set_self_account(&mut self, self_account: Option<HexVec>) {
         self.runtime
             .last_mut()
             .expect("After instantiate, Record::runtime shouldn't be empty")
-            .self_account = self_account;
+            .0.self_account = self_account;
     }
 
     pub fn update_seal_trace(&mut self, host_func: &str, depth: usize) {
         self.runtime
             .get_mut(depth)
             .expect("After `nested`, the index should be exist")
-            .seal_trace.push(host_func.to_string());
-        if let Some(count) = self.seal_count.get_mut(&host_func.to_string()){
+            .0.seal_trace.push(host_func.to_string());
+        if let Some(count) = self.seal_count.get_mut(&host_func.to_string()) {
             *count = count.checked_add(1).unwrap();
-        } else{
+        } else {
             self.seal_count.insert(host_func.to_string(), 1);
         }
     }
 }
 
-impl Drop for Record{
+impl Drop for Record {
     fn drop(&mut self) {
         println! {"{:#?}\n", self};
     }
