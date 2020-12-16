@@ -668,7 +668,6 @@ where
 
         let mut record = Record::new();
         let result = record::set_and_run_with_record(&mut record, || func(&mut ctx, gas_meter));
-        println! {"{:#?}\n", record};
         result
     }
 }

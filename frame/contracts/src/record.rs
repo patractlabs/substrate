@@ -40,7 +40,7 @@ impl NestedRuntime {
         self_account: Option<HexVec>,
         selector: Option<HexVec>,
         args: Option<HexVec>,
-        value: Vec<u8>,
+        value: u128,
         gas_limit: Gas,
     ) -> NestedRuntime {
         NestedRuntime {
@@ -49,13 +49,7 @@ impl NestedRuntime {
             self_account,
             selector,
             args,
-            value: {
-                let mut buf = [0u8; 16];
-                for i in 0..value.len() {
-                    buf[i] = value[i];
-                }
-                u128::from_le_bytes(buf)
-            },
+            value,
             gas_limit,
             gas_left: gas_limit,
             seal_trace: vec![],
@@ -108,6 +102,12 @@ impl Record {
         } else{
             self.seal_count.insert(host_func.to_string(), 1);
         }
+    }
+}
+
+impl Drop for Record{
+    fn drop(&mut self) {
+        println! {"{:#?}\n", self};
     }
 }
 
