@@ -19,6 +19,7 @@ proc-macro = true
 proc-macro2 = "1"
 quote = "1"
 syn = "1"
+heck = "0.3.1"
 
 [dev-dependencies]
 

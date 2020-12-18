@@ -134,7 +134,7 @@ macro_rules! define_func {
 						AsRef<[u8]>
 		{
 			$crate::record::with_record(|r|
-				r.update_seal_trace(stringify!($name), $ctx.ext.get_depth() - 1)
+				r.count(stringify!($name))
 			);
 
 			#[allow(unused)]

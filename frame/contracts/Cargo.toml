@@ -31,8 +31,11 @@ sp-io = { version = "2.0.0", default-features = false, git = "https://github.com
 sp-std = { version = "2.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-sandbox = { version = "0.8.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 wasmi-validation = { version = "0.3.0", default-features = false }
+
+# used in env_trace
 environmental = { version = "1.1.2", default-features = false }
 derivative = "2.1.1"
+add_getters_setters = "1.1.2"
 
 # Only used in benchmarking to generate random contract code
 rand = { version = "0.7.0", optional = true, default-features = false }
@@ -63,6 +66,7 @@ std = [
 	"parity-wasm/std",
 	"pwasm-utils/std",
 	"wasmi-validation/std",
+	"environmental/std",
 	"pallet-contracts-primitives/std",
 	"pallet-contracts-proc-macro/full",
 ]

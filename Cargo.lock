@@ -11,6 +11,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "add_getters_setters"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efdf677ab1744b2b6026c4d148bc532f0497be585941ef600cab4c682904ea09"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4506,6 +4517,7 @@ dependencies = [
 name = "pallet-contracts"
 version = "2.0.0"
 dependencies = [
+ "add_getters_setters",
  "assert_matches",
  "derivative",
  "environmental",
@@ -4560,6 +4572,7 @@ dependencies = [
 name = "pallet-contracts-proc-macro"
 version = "0.1.0"
 dependencies = [
+ "heck",
  "proc-macro2",
  "quote",
  "syn",

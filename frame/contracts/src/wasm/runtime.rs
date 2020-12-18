@@ -20,7 +20,8 @@ use crate::{
 	HostFnWeights, Schedule, Config, CodeHash, BalanceOf, Error,
 	exec::{Ext, StorageKey, TopicOf},
 	gas::{Gas, GasMeter, Token, GasMeterResult},
-	wasm::env_def::ConvertibleToWasm,
+	wasm::env_def::ConvertibleToWasm, record::with_record,
+	env_trace::*
 };
 use sp_sandbox;
 use parity_wasm::elements::ValueType;
@@ -280,7 +281,7 @@ fn has_duplicates<T: PartialEq + AsRef<[u8]>>(items: &mut Vec<T>) -> bool {
 
 /// Can only be used for one call.
 pub struct Runtime<'a, E: Ext + 'a> {
-	pub ext: &'a mut E,
+	ext: &'a mut E,
 	input_data: Option<Vec<u8>>,
 	schedule: &'a Schedule<E::T>,
 	memory: sp_sandbox::Memory,
@@ -503,18 +504,19 @@ where
 		input_ptr: u32,
 		input_len: u32,
 		output_ptr: u32,
-	) -> Result<(), sp_sandbox::HostError>
+	) -> Result<(Vec<u8>, R), sp_sandbox::HostError>
 	where
 		F: FnOnce(&[u8]) -> R,
 		R: AsRef<[u8]>,
 	{
 		// Copy input into supervisor memory.
 		let input = self.read_sandbox_memory(input_ptr, input_len)?;
+
 		// Compute the hash on the input buffer using the given hash function.
 		let hash = hash_fn(&input);
 		// Write the resulting hash back into the sandboxed output buffer.
 		self.write_sandbox_memory(output_ptr, hash.as_ref())?;
-		Ok(())
+		Ok((input, hash))
 	}
 
 	/// Stores a DispatchError returned from an Ext function into the trap_reason.
@@ -616,7 +618,20 @@ define_env!(Env, <E: Ext>,
 	//
 	// - amount: How much gas is used.
 	gas(ctx, amount: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::Gas(crate::env_trace::Gas::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::MeteringBlock(amount))?;
+
+	    with_record(|r| {
+	        if let EnvTrace::Gas(gas) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	gas.set_amount(Some(amount));
+	        }
+	    });
+
 		Ok(())
 	},
 
@@ -636,13 +651,29 @@ define_env!(Env, <E: Ext>,
 	// - If value length exceeds the configured maximum value length of a storage entry.
 	// - Upon trying to set an empty storage entry (value length is 0).
 	seal_set_storage(ctx, key_ptr: u32, value_ptr: u32, value_len: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealSetStorage(SealSetStorage::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::SetStorage(value_len))?;
 		if value_len > ctx.ext.max_value_size() {
 			Err(ctx.store_err(Error::<E::T>::ValueTooLarge))?;
 		}
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
+		with_record(|r| {
+	        if let EnvTrace::SealSetStorage(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_key(Some(key));
+	        }
+	    });
 		let value = Some(ctx.read_sandbox_memory(value_ptr, value_len)?);
+		with_record(|r| {
+	        if let EnvTrace::SealSetStorage(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_value(value.clone());
+	        }
+	    });
 		ctx.ext.set_storage(key, value);
 		Ok(())
 	},
@@ -653,9 +684,20 @@ define_env!(Env, <E: Ext>,
 	//
 	// - `key_ptr`: pointer into the linear memory where the location to clear the value is placed.
 	seal_clear_storage(ctx, key_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealClearStorage(SealClearStorage::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::ClearStorage)?;
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
+		with_record(|r| {
+	        if let EnvTrace::SealClearStorage(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_key(Some(key));
+	        }
+	    });
 		ctx.ext.set_storage(key, None);
 		Ok(())
 	},
@@ -673,13 +715,30 @@ define_env!(Env, <E: Ext>,
 	//
 	// `ReturnCode::KeyNotFound`
 	seal_get_storage(ctx, key_ptr: u32, out_ptr: u32, out_len_ptr: u32) -> ReturnCode => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealGetStorage(SealGetStorage::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::GetStorageBase)?;
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
+		with_record(|r| {
+	        if let EnvTrace::SealGetStorage(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_key(Some(key));
+	        }
+	    });
 		if let Some(value) = ctx.ext.get_storage(&key) {
 			ctx.write_sandbox_output(out_ptr, out_len_ptr, &value, false, |len| {
 				Some(RuntimeToken::GetStorageCopyOut(len))
 			})?;
+			with_record(|r| {
+	        	if let EnvTrace::SealGetStorage(e) =
+	        			r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        		e.set_output(Some(value.into()));
+	        	}
+	    	});
 			Ok(ReturnCode::Success)
 		} else {
 			Ok(ReturnCode::KeyNotFound)
@@ -708,11 +767,28 @@ define_env!(Env, <E: Ext>,
 		value_ptr: u32,
 		value_len: u32
 	) -> ReturnCode => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealTransfer(SealTransfer::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::Transfer)?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(account_ptr, account_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealTransfer(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_account(Some(callee.encode().into()));
+	        }
+	    });
+
 		let value: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(value_ptr, value_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealTransfer(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_value(Some(value.saturated_into()));
+	        }
+	    });
 
 		let result = ctx.ext.transfer(&callee, value);
 		ctx.map_dispatch_result(result)
@@ -761,11 +837,34 @@ define_env!(Env, <E: Ext>,
 		output_ptr: u32,
 		output_len_ptr: u32
 	) -> ReturnCode => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealCall(SealCall::new(gas))
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::CallBase(input_data_len))?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(callee_ptr, callee_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealCall(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_callee(Some(callee.encode().into()));
+	        }
+	    });
+
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr, value_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealCall(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_value(Some(value.saturated_into()));
+	        }
+	    });
+
 		let input_data = ctx.read_sandbox_memory(input_data_ptr, input_data_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealCall(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_input(Some(input_data.clone().into()));
+	        }
+	    });
 
 		if value > 0u32.into() {
 			ctx.charge_gas(RuntimeToken::CallSurchargeTransfer)?;
@@ -784,7 +883,7 @@ define_env!(Env, <E: Ext>,
 						&callee,
 						value,
 						nested_meter,
-						input_data,
+						input_data.clone(),
 					)
 				}
 				// there is not enough gas to allocate for the nested call.
@@ -796,6 +895,12 @@ define_env!(Env, <E: Ext>,
 			ctx.write_sandbox_output(output_ptr, output_len_ptr, &output.data, true, |len| {
 				Some(RuntimeToken::CallCopyOut(len))
 			})?;
+			with_record(|r| {
+	        	if let EnvTrace::SealCall(e) =
+	        			r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        		e.set_output(Some(output.data.clone().into()));
+	        	}
+	    	});
 		}
 		ctx.map_exec_result(call_outcome)
 	},
@@ -861,12 +966,41 @@ define_env!(Env, <E: Ext>,
 		salt_ptr: u32,
 		salt_len: u32
 	) -> ReturnCode => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealInstantiate(SealInstantiate::new(gas))
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::InstantiateBase {input_data_len, salt_len})?;
 		let code_hash: CodeHash<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(code_hash_ptr, code_hash_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealInstantiate(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_code_hash(Some(code_hash.encode().into()));
+	        }
+	    });
+
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr, value_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealInstantiate(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_value(Some(value.saturated_into()));
+	        }
+	    });
+
 		let input_data = ctx.read_sandbox_memory(input_data_ptr, input_data_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealInstantiate(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_input(Some(input_data.clone().into()));
+	        }
+	    });
+
 		let salt = ctx.read_sandbox_memory(salt_ptr, salt_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealInstantiate(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_salt(Some(salt.clone().into()));
+	        }
+	    });
 
 		let nested_gas_limit = if gas == 0 {
 			ctx.gas_meter.gas_left()
@@ -898,6 +1032,13 @@ define_env!(Env, <E: Ext>,
 			ctx.write_sandbox_output(output_ptr, output_len_ptr, &output.data, true, |len| {
 				Some(RuntimeToken::InstantiateCopyOut(len))
 			})?;
+			with_record(|r| {
+	        	if let EnvTrace::SealInstantiate(e) =
+	        			r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        		e.set_output(Some(output.data.clone().into()));
+	        		e.set_address(Some(address.encode().into()));
+	        	}
+	    	});
 		}
 		ctx.map_exec_result(instantiate_outcome.map(|(_id, retval)| retval))
 	},
@@ -921,9 +1062,20 @@ define_env!(Env, <E: Ext>,
 		beneficiary_ptr: u32,
 		beneficiary_len: u32
 	) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealTerminate(SealTerminate::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::Terminate)?;
 		let beneficiary: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(beneficiary_ptr, beneficiary_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealTerminate(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_beneficiary(Some(beneficiary.encode().into()));
+	        }
+	    });
 
 		if let Ok(_) = ctx.ext.terminate(&beneficiary).map_err(|e| ctx.store_err(e)) {
 			ctx.trap_reason = Some(TrapReason::Termination);
@@ -932,8 +1084,20 @@ define_env!(Env, <E: Ext>,
 	},
 
 	seal_input(ctx, buf_ptr: u32, buf_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealInput(SealInput::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::InputBase)?;
 		if let Some(input) = ctx.input_data.take() {
+			with_record(|r| {
+	        	if let EnvTrace::SealInput(e) =
+	        			r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        		e.set_buf(Some(input.clone().into()));
+	        	}
+	    	});
 			ctx.write_sandbox_output(buf_ptr, buf_len_ptr, &input, false, |len| {
 				Some(RuntimeToken::InputCopyOut(len))
 			})
@@ -960,10 +1124,22 @@ define_env!(Env, <E: Ext>,
 	//
 	// Using a reserved bit triggers a trap.
 	seal_return(ctx, flags: u32, data_ptr: u32, data_len: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealReturn(SealReturn::new(flags))
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::Return(data_len))?;
+		let data = ctx.read_sandbox_memory(data_ptr, data_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealReturn(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_data(Some(data.clone().into()));
+	        }
+	    });
 		ctx.trap_reason = Some(TrapReason::Return(ReturnData {
 			flags,
-			data: ctx.read_sandbox_memory(data_ptr, data_len)?,
+			data
 		}));
 
 		// The trap mechanism is used to immediately terminate the execution.
@@ -983,7 +1159,18 @@ define_env!(Env, <E: Ext>,
 	// extrinsic will be returned. Otherwise, if this call is initiated by another contract then the
 	// address of the contract will be returned. The value is encoded as T::AccountId.
 	seal_caller(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealCaller(SealCaller::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::Caller)?;
+		with_record(|r| {
+	        if let EnvTrace::SealCaller(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.caller().encode().clone().into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.caller().encode(), false, already_charged
 		)
@@ -996,7 +1183,18 @@ define_env!(Env, <E: Ext>,
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	seal_address(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealAddress(SealAddress::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::Address)?;
+		with_record(|r| {
+	        if let EnvTrace::SealAddress(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.address().encode().clone().into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.address().encode(), false, already_charged
 		)
@@ -1016,7 +1214,18 @@ define_env!(Env, <E: Ext>,
 	// It is recommended to avoid specifying very small values for `gas` as the prices for a single
 	// gas can be smaller than one.
 	seal_weight_to_fee(ctx, gas: u64, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealWeightToFee(SealWeightToFee::new(gas))
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::WeightToFee)?;
+		with_record(|r| {
+	        if let EnvTrace::SealWeightToFee(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.get_weight_price(gas).saturated_into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.get_weight_price(gas).encode(), false, already_charged
 		)
@@ -1031,7 +1240,18 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as Gas.
 	seal_gas_left(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealGasLeft(SealGasLeft::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::GasLeft)?;
+		with_record(|r| {
+	        if let EnvTrace::SealGasLeft(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.gas_meter.gas_left().encode().clone().into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.gas_meter.gas_left().encode(), false, already_charged
 		)
@@ -1046,7 +1266,18 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as T::Balance.
 	seal_balance(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealBalance(SealBalance::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::Balance)?;
+		with_record(|r| {
+	        if let EnvTrace::SealBalance(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.balance().encode().clone().into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.balance().encode(), false, already_charged
 		)
@@ -1061,7 +1292,18 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as T::Balance.
 	seal_value_transferred(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealValueTransferred(SealValueTransferred::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::ValueTransferred)?;
+		with_record(|r| {
+	        if let EnvTrace::SealValueTransferred(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.value_transferred().encode().clone().into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.value_transferred().encode(), false, already_charged
 		)
@@ -1076,11 +1318,24 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as T::Hash.
 	seal_random(ctx, subject_ptr: u32, subject_len: u32, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealRandom(SealRandom::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::Random)?;
 		if subject_len > ctx.schedule.limits.subject_len {
 			return Err(sp_sandbox::HostError);
 		}
 		let subject_buf = ctx.read_sandbox_memory(subject_ptr, subject_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealRandom(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_subject(Some(subject_buf.clone().into()));
+	        	e.set_out(Some(ctx.ext.random(&subject_buf).encode().clone().into()));
+	        }
+	    });
+
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.random(&subject_buf).encode(), false, already_charged
 		)
@@ -1093,7 +1348,18 @@ define_env!(Env, <E: Ext>,
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	seal_now(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealNow(SealNow::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::Now)?;
+		with_record(|r| {
+	        if let EnvTrace::SealNow(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.now().encode().clone().into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.now().encode(), false, already_charged
 		)
@@ -1103,7 +1369,18 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as T::Balance.
 	seal_minimum_balance(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealMinimumBalance(SealMinimumBalance::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::MinimumBalance)?;
+		with_record(|r| {
+	        if let EnvTrace::SealMinimumBalance(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.minimum_balance().saturated_into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.minimum_balance().encode(), false, already_charged
 		)
@@ -1125,7 +1402,18 @@ define_env!(Env, <E: Ext>,
 	// below the sum of existential deposit and the tombstone deposit. The sum
 	// is commonly referred as subsistence threshold in code.
 	seal_tombstone_deposit(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealTombstoneDeposit(SealTombstoneDeposit::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::TombstoneDeposit)?;
+		with_record(|r| {
+	        if let EnvTrace::SealTombstoneDeposit(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.tombstone_deposit().saturated_into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.tombstone_deposit().encode(), false, already_charged
 		)
@@ -1168,13 +1456,37 @@ define_env!(Env, <E: Ext>,
 		delta_ptr: u32,
 		delta_count: u32
 	) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealRestoreTo(SealRestoreTo::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::RestoreTo(delta_count))?;
 		let dest: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(dest_ptr, dest_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealRestoreTo(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_dest(Some(dest.encode().into()));
+	        }
+	    });
+
 		let code_hash: CodeHash<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(code_hash_ptr, code_hash_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealRestoreTo(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_code_hash(Some(code_hash.encode().clone().into()));
+	        }
+	    });
+
 		let rent_allowance: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(rent_allowance_ptr, rent_allowance_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealRestoreTo(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_rent_allowance(Some(rent_allowance.saturated_into()));
+	        }
+	    });
+
 		let delta = {
 			// We can eagerly allocate because we charged for the complete delta count already
 			let mut delta = Vec::with_capacity(delta_count as usize);
@@ -1194,6 +1506,11 @@ define_env!(Env, <E: Ext>,
 
 			delta
 		};
+		with_record(|r| {
+	        if let EnvTrace::SealRestoreTo(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_delta(Some(delta.clone()));
+	        }
+	    });
 
 		if let Ok(()) = ctx.ext.restore_to(
 			dest,
@@ -1215,6 +1532,12 @@ define_env!(Env, <E: Ext>,
 	// - data_ptr - a pointer to a raw data buffer which will saved along the event.
 	// - data_len - the length of the data buffer.
 	seal_deposit_event(ctx, topics_ptr: u32, topics_len: u32, data_ptr: u32, data_len: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealDepositEvent(SealDepositEvent::default())
+			)
+		).unwrap();
 		let num_topic = topics_len
 			.checked_div(sp_std::mem::size_of::<TopicOf<E::T>>() as u32)
 			.ok_or_else(|| ctx.store_err("Zero sized topics are not allowed"))?;
@@ -1230,6 +1553,13 @@ define_env!(Env, <E: Ext>,
 			0 => Vec::new(),
 			_ => ctx.read_sandbox_memory_as(topics_ptr, topics_len)?,
 		};
+		with_record(|r| {
+	        if let EnvTrace::SealDepositEvent(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_topics(Some(
+	        		topics.iter().map(|topic| topic.encode().into()).collect::<Vec<HexVec>>()
+	        	));
+	        }
+	    });
 
 		// If there are more than `event_topics`, then trap.
 		if topics.len() > ctx.schedule.limits.event_topics as usize {
@@ -1242,6 +1572,11 @@ define_env!(Env, <E: Ext>,
 		}
 
 		let event_data = ctx.read_sandbox_memory(data_ptr, data_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealDepositEvent(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_data(Some(event_data.clone().into()));
+	        }
+	    });
 
 		ctx.ext.deposit_event(topics, event_data);
 
@@ -1254,9 +1589,20 @@ define_env!(Env, <E: Ext>,
 	//   Should be decodable as a `T::Balance`. Traps otherwise.
 	// - value_len: length of the value buffer.
 	seal_set_rent_allowance(ctx, value_ptr: u32, value_len: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealSetRentAllowance(SealSetRentAllowance::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::SetRentAllowance)?;
 		let value: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(value_ptr, value_len)?;
+		with_record(|r| {
+	        if let EnvTrace::SealSetRentAllowance(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_value(Some(value.saturated_into()));
+	        }
+	    });
 		ctx.ext.set_rent_allowance(value);
 
 		Ok(())
@@ -1271,7 +1617,18 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as T::Balance.
 	seal_rent_allowance(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealRentAllowance(SealRentAllowance::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::RentAllowance)?;
+		with_record(|r| {
+	        if let EnvTrace::SealRentAllowance(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.rent_allowance().saturated_into()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.rent_allowance().encode(), false, already_charged
 		)
@@ -1281,9 +1638,20 @@ define_env!(Env, <E: Ext>,
 	// Only available on `--dev` chains.
 	// This function may be removed at any time, superseded by a more general contract debugging feature.
 	seal_println(ctx, str_ptr: u32, str_len: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealPrintln(SealPrintln::default())
+			)
+		).unwrap();
 		let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
 		if let Ok(utf8) = core::str::from_utf8(&data) {
-			sp_runtime::print(utf8);
+			sp_runtime::print(&utf8);
+			with_record(|r| {
+	        if let EnvTrace::SealPrintln(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_str(Some(utf8.to_string()));
+	        }
+	    });
 		}
 		Ok(())
 	},
@@ -1295,7 +1663,18 @@ define_env!(Env, <E: Ext>,
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	seal_block_number(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealBlockNumber(SealBlockNumber::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::BlockNumber)?;
+		with_record(|r| {
+	        if let EnvTrace::SealBlockNumber(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_out(Some(ctx.ext.block_number().saturated_into::<u32>()));
+	        }
+	    });
 		ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.block_number().encode(), false, already_charged
 		)
@@ -1322,8 +1701,22 @@ define_env!(Env, <E: Ext>,
 	//                 data is placed. The function will write the result
 	//                 directly into this buffer.
 	seal_hash_sha2_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealHashSha256(SealHashSha256::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::HashSha256(input_len))?;
-		ctx.compute_hash_on_intermediate_buffer(sha2_256, input_ptr, input_len, output_ptr)
+		let (input, out) =
+			ctx.compute_hash_on_intermediate_buffer(sha2_256, input_ptr, input_len, output_ptr)?;
+		with_record(|r| {
+	        if let EnvTrace::SealHashSha256(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_input(Some(input.into()));
+	        	e.set_out(Some(out.encode().into()));
+	        }
+	    });
+	    Ok(())
 	},
 
 	// Computes the KECCAK 256-bit hash on the given input buffer.
@@ -1347,8 +1740,22 @@ define_env!(Env, <E: Ext>,
 	//                 data is placed. The function will write the result
 	//                 directly into this buffer.
 	seal_hash_keccak_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealHashKeccak256(SealHashKeccak256::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::HashKeccak256(input_len))?;
-		ctx.compute_hash_on_intermediate_buffer(keccak_256, input_ptr, input_len, output_ptr)
+		let (input, out) =
+			ctx.compute_hash_on_intermediate_buffer(keccak_256, input_ptr, input_len, output_ptr)?;
+		with_record(|r| {
+	        if let EnvTrace::SealHashKeccak256(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_input(Some(input.into()));
+	        	e.set_out(Some(out.encode().into()));
+	        }
+	    });
+	    Ok(())
 	},
 
 	// Computes the BLAKE2 256-bit hash on the given input buffer.
@@ -1372,8 +1779,22 @@ define_env!(Env, <E: Ext>,
 	//                 data is placed. The function will write the result
 	//                 directly into this buffer.
 	seal_hash_blake2_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealHashBlake256(SealHashBlake256::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::HashBlake256(input_len))?;
-		ctx.compute_hash_on_intermediate_buffer(blake2_256, input_ptr, input_len, output_ptr)
+		let (input, out) =
+			ctx.compute_hash_on_intermediate_buffer(blake2_256, input_ptr, input_len, output_ptr)?;
+		with_record(|r| {
+	        if let EnvTrace::SealHashBlake256(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_input(Some(input.into()));
+	        	e.set_out(Some(out.encode().into()));
+	        }
+	    });
+	    Ok(())
 	},
 
 	// Computes the BLAKE2 128-bit hash on the given input buffer.
@@ -1397,7 +1818,21 @@ define_env!(Env, <E: Ext>,
 	//                 data is placed. The function will write the result
 	//                 directly into this buffer.
 	seal_hash_blake2_128(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
+		let index = with_record(|r|
+			r.env_trace_push(
+				ctx.ext.get_depth(),
+				EnvTrace::SealHashBlake128(SealHashBlake128::default())
+			)
+		).unwrap();
 		ctx.charge_gas(RuntimeToken::HashBlake128(input_len))?;
-		ctx.compute_hash_on_intermediate_buffer(blake2_128, input_ptr, input_len, output_ptr)
+		let (input, out) =
+			ctx.compute_hash_on_intermediate_buffer(blake2_128, input_ptr, input_len, output_ptr)?;
+		with_record(|r| {
+	        if let EnvTrace::SealHashBlake128(e) = r.env_trace_backtrace(ctx.ext.get_depth(), index) {
+	        	e.set_input(Some(input.into()));
+	        	e.set_out(Some(out.encode().into()));
+	        }
+	    });
+	    Ok(())
 	},
 );

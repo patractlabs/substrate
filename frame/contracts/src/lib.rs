@@ -84,6 +84,7 @@
 mod gas;
 mod benchmarking;
 mod exec;
+mod env_trace;
 mod record;
 mod rent;
 mod schedule;
@@ -666,7 +667,7 @@ where
         let loader = WasmLoader::new(&cfg.schedule);
         let mut ctx = ExecutionContext::top_level(origin, &cfg, &vm, &loader);
 
-        let mut record = Record::new();
+        let mut record = Record::default();
         let result = record::set_and_run_with_record(&mut record, || func(&mut ctx, gas_meter));
         result
     }

@@ -265,7 +265,7 @@ where
         } else if input_data.len() == 4 {
             (Some(input_data[0..4].to_vec().into()), None)
         } else if input_data.len() > 0 {
-            (None, Some(input_data.to_owned().into()))
+            (None, Some(input_data.into()))
         } else {
             (None, None)
         };

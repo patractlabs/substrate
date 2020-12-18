@@ -1,24 +1,9 @@
 use crate::Gas;
-use sp_core::hexdisplay::HexDisplay;
 use sp_std::cmp::max;
-use sp_std::fmt;
-use sp_std::fmt::Formatter;
+use sp_std::fmt::{self, Formatter};
 use sp_std::collections::btree_map::BTreeMap;
 use derivative::Derivative;
-
-pub struct HexVec(Vec<u8>);
-
-impl fmt::Debug for HexVec {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("0x{}", &HexDisplay::from(&self.0)))
-    }
-}
-
-impl From<Vec<u8>> for HexVec {
-    fn from(vec: Vec<u8>) -> Self {
-        HexVec(vec)
-    }
-}
+use crate::env_trace::{EnvTrace, HexVec};
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -32,7 +17,7 @@ pub struct NestedRuntime {
     value: u128,
     gas_limit: Gas,
     gas_left: Gas,
-    seal_trace: Vec<String>,
+    env_trace: Vec<EnvTrace>,
     // trap_reason: Option<TrapReason>,
 }
 
@@ -55,7 +40,7 @@ impl NestedRuntime {
             value,
             gas_limit,
             gas_left: gas_limit,
-            seal_trace: vec![],
+            env_trace: Vec::new(),
         }
     }
 }
@@ -68,22 +53,14 @@ impl fmt::Debug for NestedRuntimeWrapper {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Record {
     deepest: usize,
     runtime: Vec<NestedRuntimeWrapper>,
-    seal_count: BTreeMap<String, u8>,
+    host_func_count: BTreeMap<String, u8>,
 }
 
 impl Record {
-    pub(crate) fn new() -> Record {
-        Record {
-            deepest: 0,
-            runtime: vec![],
-            seal_count: BTreeMap::new(),
-        }
-    }
-
     pub fn nested(&mut self, runtime: NestedRuntime) {
         self.deepest = max(self.deepest, runtime.depth);
         self.runtime.push(NestedRuntimeWrapper(runtime));
@@ -103,16 +80,33 @@ impl Record {
             .0.self_account = self_account;
     }
 
-    pub fn update_seal_trace(&mut self, host_func: &str, depth: usize) {
-        self.runtime
-            .get_mut(depth)
-            .expect("After `nested`, the index should be exist")
-            .0.seal_trace.push(host_func.to_string());
-        if let Some(count) = self.seal_count.get_mut(&host_func.to_string()) {
+    pub fn count(&mut self, host_func: &str) {
+        if let Some(count) = self.host_func_count.get_mut(&host_func.to_string()) {
             *count = count.checked_add(1).unwrap();
         } else {
-            self.seal_count.insert(host_func.to_string(), 1);
+            self.host_func_count.insert(host_func.to_string(), 1);
         }
+    }
+
+    fn get_env_trace(&mut self, depth: usize) -> &mut Vec<EnvTrace> {
+        &mut self.runtime
+            .get_mut(depth - 1)
+            .expect("After `nested`, the index should be exist")
+            .0.env_trace
+    }
+
+    pub fn env_trace_push(&mut self, depth: usize, host_func: EnvTrace) -> usize {
+        let env_trace = self.get_env_trace(depth);
+        let index = env_trace.len();
+        env_trace.push(host_func);
+        index
+    }
+
+    pub fn env_trace_backtrace(&mut self, depth: usize, index: usize) -> &mut EnvTrace {
+        let env_trace = self.get_env_trace(depth);
+        env_trace
+            .get_mut(index)
+            .expect("`update_env_trace` should be used after `env_trace_push`")
     }
 }
 

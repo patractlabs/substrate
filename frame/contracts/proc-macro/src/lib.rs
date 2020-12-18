@@ -24,8 +24,10 @@ extern crate alloc;
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
-use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields, Ident};
+use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields, Ident, ItemStruct};
 use alloc::string::ToString;
+use alloc::vec::Vec;
+use heck::SnakeCase;
 
 /// This derives `Debug` for a struct where each field must be of some numeric type.
 /// It interprets each field as its represents some weight and formats it as times so that
@@ -139,4 +141,33 @@ fn format_default(field: &Ident) -> TokenStream {
 	quote_spanned! { field.span() =>
 		&self.#field
 	}
+}
+
+#[proc_macro_derive(HostDebug)]
+pub fn host_debug(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+	let item_struct = parse_macro_input!(input as ItemStruct);
+	let ident = &item_struct.ident;
+	let ident_name = ident.to_string().to_snake_case();
+	let fields = &item_struct.fields;
+
+	let output = if let Fields::Named(ref fields_name) = fields {
+		let get_self: Vec<_> = fields_name.named.iter().map(|field| {
+			let field_name = field.ident.as_ref().unwrap();
+			quote! {
+                &self.#field_name
+            }
+		}).collect();
+
+		quote! {
+            impl fmt::Debug for #ident {
+                fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                    f.write_fmt(format_args!("{}({:?})", #ident_name,(#(#get_self),*)))
+                }
+            }
+        }
+	} else {
+		panic!("wrong struct type!");
+	};
+
+	output.into()
 }
