@@ -41,7 +41,7 @@ pub use self::code_cache::save as save_code;
 #[cfg(feature = "runtime-benchmarks")]
 pub use self::code_cache::save_raw as save_code_raw;
 pub use self::runtime::ReturnCode;
-use crate::record::with_record;
+use crate::trace_runtime::with_runtime;
 
 /// A prepared wasm module ready for execution.
 #[derive(Clone, Encode, Decode)]
@@ -163,7 +163,7 @@ where
         let result = sp_sandbox::Instance::new(&exec.prefab_module.code, &imports, &mut runtime)
             .and_then(|mut instance| instance.invoke(exec.entrypoint_name, &[], &mut runtime));
         let ext_result = runtime.to_execution_result(result);
-        with_record(|r| r.set_gas_left(gas_meter.gas_left(), ext.get_depth() - 1));
+        with_runtime(|r| r.set_gas_left(gas_meter.gas_left()));
         ext_result
     }
 }

@@ -2,10 +2,12 @@ use add_getters_setters::AddSetter;
 use derivative::Derivative;
 use sp_std::fmt;
 use sp_std::fmt::Formatter;
-use pallet_contracts_proc_macro::HostDebug;
+use pallet_contracts_proc_macro::{HostDebug, Wrap};
 use sp_core::hexdisplay::HexDisplay;
 use crate::exec::StorageKey;
+use crate::trace_runtime::with_runtime;
 
+#[derive(Clone)]
 pub struct HexVec(Vec<u8>);
 
 impl fmt::Debug for HexVec {
@@ -24,13 +26,39 @@ impl From<Vec<u8>> for HexVec {
     }
 }
 
-#[derive(Default, AddSetter, HostDebug)]
-pub struct Gas {
-    #[set]
-    amount: Option<u32>
+pub trait Wrapper: Clone {
+    fn wrap(&self) -> EnvTrace;
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+pub struct EnvTraceGuard<T: Wrapper> {
+    ptr: *const T,
+}
+
+impl<T: Wrapper> EnvTraceGuard<T> {
+    pub fn new(seal: &T) -> EnvTraceGuard<T> {
+        EnvTraceGuard { ptr: seal as *const T }
+    }
+}
+
+impl<T: Wrapper> Drop for EnvTraceGuard<T> {
+    fn drop(&mut self) {
+        with_runtime(|r|
+            r.env_trace_push(T::wrap(
+                unsafe {
+                    &(*self.ptr).clone()
+                }
+            ))
+        ).unwrap();
+    }
+}
+
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+pub struct Gas {
+    #[set]
+    amount: Option<u32>,
+}
+
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealSetStorage {
     #[set]
     key: Option<StorageKey>,
@@ -38,13 +66,13 @@ pub struct SealSetStorage {
     value: Option<Vec<u8>>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealClearStorage {
     #[set]
     key: Option<StorageKey>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealGetStorage {
     #[set]
     key: Option<StorageKey>,
@@ -52,7 +80,7 @@ pub struct SealGetStorage {
     output: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealTransfer {
     #[set]
     account: Option<HexVec>,
@@ -60,10 +88,11 @@ pub struct SealTransfer {
     value: Option<u128>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealCall {
     #[set]
     callee: Option<HexVec>,
+    #[set]
     gas: u64,
     #[set]
     value: Option<u128>,
@@ -82,10 +111,11 @@ impl SealCall {
     }
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealInstantiate {
     #[set]
     code_hash: Option<HexVec>,
+    #[set]
     gas: u64,
     #[set]
     value: Option<u128>,
@@ -108,19 +138,19 @@ impl SealInstantiate {
     }
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealTerminate {
     #[set]
     beneficiary: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealInput {
     #[set]
     buf: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealReturn {
     flags: u32,
     #[set]
@@ -136,19 +166,19 @@ impl SealReturn {
     }
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealCaller {
     #[set]
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealAddress {
     #[set]
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealWeightToFee {
     gas: u64,
     #[set]
@@ -164,25 +194,25 @@ impl SealWeightToFee {
     }
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealGasLeft {
     #[set]
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealBalance {
     #[set]
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealValueTransferred {
     #[set]
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealRandom {
     #[set]
     subject: Option<HexVec>,
@@ -190,25 +220,25 @@ pub struct SealRandom {
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealNow {
     #[set]
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealMinimumBalance {
     #[set]
     out: Option<u128>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealTombstoneDeposit {
     #[set]
     out: Option<u128>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealRestoreTo {
     #[set]
     dest: Option<HexVec>,
@@ -220,7 +250,7 @@ pub struct SealRestoreTo {
     delta: Option<Vec<StorageKey>>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealDepositEvent {
     #[set]
     topics: Option<Vec<HexVec>>,
@@ -228,60 +258,60 @@ pub struct SealDepositEvent {
     data: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealSetRentAllowance {
     #[set]
     value: Option<u128>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealRentAllowance {
     #[set]
     out: Option<u128>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealPrintln {
     #[set]
     str: Option<String>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealBlockNumber {
     #[set]
     out: Option<u32>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealHashSha256 {
     #[set]
     input: Option<HexVec>,
     #[set]
-    out: Option<HexVec>
+    out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealHashKeccak256 {
     #[set]
     input: Option<HexVec>,
     #[set]
-    out: Option<HexVec>
+    out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealHashBlake256 {
     #[set]
     input: Option<HexVec>,
     #[set]
-    out: Option<HexVec>
+    out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealHashBlake128 {
     #[set]
     input: Option<HexVec>,
     #[set]
-    out: Option<HexVec>
+    out: Option<HexVec>,
 }
 
 #[derive(Derivative)]

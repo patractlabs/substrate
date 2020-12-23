@@ -90,6 +90,7 @@ mod rent;
 mod schedule;
 mod storage;
 mod wasm;
+mod trace_runtime;
 pub mod weights;
 
 #[cfg(test)]
