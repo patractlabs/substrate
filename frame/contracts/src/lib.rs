@@ -85,7 +85,6 @@ mod gas;
 mod benchmarking;
 mod exec;
 mod env_trace;
-mod record;
 mod rent;
 mod schedule;
 mod storage;
@@ -121,7 +120,6 @@ use frame_system::{ensure_root, ensure_signed};
 use pallet_contracts_primitives::{
     ContractAccessError, ContractExecResult, ExecResult, GetStorageResult, RentProjectionResult,
 };
-use record::Record;
 use sp_core::crypto::UncheckedFrom;
 use sp_runtime::{
     traits::{Convert, Hash, MaybeSerializeDeserialize, Member, Saturating, StaticLookup, Zero},
@@ -667,10 +665,7 @@ where
         let vm = WasmVm::new(&cfg.schedule);
         let loader = WasmLoader::new(&cfg.schedule);
         let mut ctx = ExecutionContext::top_level(origin, &cfg, &vm, &loader);
-
-        let mut record = Record::default();
-        let result = record::set_and_run_with_record(&mut record, || func(&mut ctx, gas_meter));
-        result
+        func(&mut ctx, gas_meter)
     }
 }
 

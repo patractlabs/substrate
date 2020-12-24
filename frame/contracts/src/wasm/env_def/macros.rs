@@ -133,10 +133,6 @@ macro_rules! define_func {
 					sp_core::crypto::UncheckedFrom<<E::T as frame_system::Config>::Hash> +
 						AsRef<[u8]>
 		{
-			$crate::record::with_record(|r|
-				r.count(stringify!($name))
-			);
-
 			#[allow(unused)]
 			let mut args = args.iter();
 

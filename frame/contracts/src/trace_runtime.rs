@@ -1,9 +1,5 @@
 use sp_std::fmt::{self, Formatter};
-
-use crate::{
-    env_trace::{EnvTrace, HexVec},
-    record::with_record, Gas
-};
+use crate::{env_trace::{EnvTrace, HexVec}, Gas};
 
 #[derive(Debug)]
 struct NestedRuntime {
@@ -50,6 +46,10 @@ impl NestedRuntimeWrapper {
         }
     }
 
+    fn is_top_level(&self) -> bool {
+        self.depth == 1
+    }
+
     pub fn nested(&mut self, nest: NestedRuntimeWrapper) {
         self.inner.nest.push(nest);
     }
@@ -75,6 +75,14 @@ impl NestedRuntimeWrapper {
 impl fmt::Debug for NestedRuntimeWrapper {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {:#?}", self.depth, self.inner)
+    }
+}
+
+impl Drop for NestedRuntimeWrapper {
+    fn drop(&mut self) {
+        if self.depth == 1 {
+            println! {"{:#?}\n", self};
+        }
     }
 }
 
@@ -127,14 +135,12 @@ pub fn with_nested_runtime<F, R>(
         gas_left,
     );
 
-    if with_record(|r| r.is_init()).unwrap() {
-        with_runtime(|r| r.nested(nest));
+    if nest.is_top_level() {
+        set_and_run_with_runtime(&mut nest, f)
+    } else {
         with_runtime(|r| {
+            r.nested(nest);
             set_and_run_with_runtime(r.nest_pop(), f)
         }).unwrap()
-    } else {
-        let result = set_and_run_with_runtime(&mut nest, f);
-        with_record(|r| r.set_runtime(Some(nest)));
-        result
     }
 }
