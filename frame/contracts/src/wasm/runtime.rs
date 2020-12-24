@@ -504,19 +504,18 @@ where
 		input_ptr: u32,
 		input_len: u32,
 		output_ptr: u32,
-	) -> Result<(Vec<u8>, R), sp_sandbox::HostError>
+	) -> Result<(), sp_sandbox::HostError>
 	where
 		F: FnOnce(&[u8]) -> R,
 		R: AsRef<[u8]>,
 	{
 		// Copy input into supervisor memory.
 		let input = self.read_sandbox_memory(input_ptr, input_len)?;
-
 		// Compute the hash on the input buffer using the given hash function.
 		let hash = hash_fn(&input);
 		// Write the resulting hash back into the sandboxed output buffer.
 		self.write_sandbox_memory(output_ptr, hash.as_ref())?;
-		Ok((input, hash))
+		Ok(())
 	}
 
 	/// Stores a DispatchError returned from an Ext function into the trap_reason.
