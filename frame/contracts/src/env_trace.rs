@@ -3,17 +3,18 @@ use derivative::Derivative;
 use sp_std::fmt;
 use sp_std::fmt::Formatter;
 use pallet_contracts_proc_macro::{HostDebug, Wrap};
-use sp_core::hexdisplay::HexDisplay;
-use crate::exec::StorageKey;
+use serde::{Serialize, Deserialize};
+
 use crate::trace_runtime::with_runtime;
 
 #[derive(Clone)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct HexVec(Vec<u8>);
 
 impl fmt::Debug for HexVec {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if self.0.len() > 0 {
-            f.write_fmt(format_args!("0x{:?}", &HexDisplay::from(&self.0)))
+            f.write_fmt(format_args!("{}", String::from("0x") + &*hex::encode(&self.0)))
         } else {
             write!(f, "")
         }
@@ -61,21 +62,21 @@ pub struct Gas {
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealSetStorage {
     #[set]
-    key: Option<StorageKey>,
+    key: Option<HexVec>,
     #[set]
-    value: Option<Vec<u8>>,
+    value: Option<HexVec>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealClearStorage {
     #[set]
-    key: Option<StorageKey>,
+    key: Option<HexVec>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealGetStorage {
     #[set]
-    key: Option<StorageKey>,
+    key: Option<HexVec>,
     #[set]
     output: Option<HexVec>,
 }
@@ -247,7 +248,7 @@ pub struct SealRestoreTo {
     #[set]
     rent_allowance: Option<u128>,
     #[set]
-    delta: Option<Vec<StorageKey>>,
+    delta: Option<Vec<HexVec>>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
@@ -314,7 +315,7 @@ pub struct SealHashBlake128 {
     out: Option<HexVec>,
 }
 
-#[derive(Derivative)]
+#[cfg_attr(feature = "std", derive(Derivative))]
 #[derivative(Debug)]
 pub enum EnvTrace {
     #[derivative(Debug = "transparent")]

@@ -4584,6 +4584,7 @@ dependencies = [
  "frame-benchmarking 2.0.0 (git+https://github.com/paritytech/substrate)",
  "frame-support 2.0.0 (git+https://github.com/paritytech/substrate)",
  "frame-system 2.0.0 (git+https://github.com/paritytech/substrate)",
+ "hex",
  "hex-literal",
  "pallet-balances 2.0.0 (git+https://github.com/paritytech/substrate)",
  "pallet-contracts-primitives 2.0.0 (git+https://github.com/paritytech/substrate)",

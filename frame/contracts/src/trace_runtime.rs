@@ -1,7 +1,8 @@
 use sp_std::fmt::{self, Formatter};
+use sp_runtime::{RuntimeDebug};
 use crate::{env_trace::{EnvTrace, HexVec}, Gas};
 
-#[derive(Debug)]
+#[derive(RuntimeDebug)]
 struct NestedRuntime {
     caller: HexVec,
     self_account: Option<HexVec>,

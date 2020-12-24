@@ -651,12 +651,12 @@ define_env!(Env, <E: Ext>,
 		}
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
-	    protege.set_key(Some(key));
+	    protege.set_key(Some(key.to_vec().into()));
 
-		let value = Some(ctx.read_sandbox_memory(value_ptr, value_len)?);
-	    protege.set_value(value.clone());
+		let value = ctx.read_sandbox_memory(value_ptr, value_len)?;
+	    protege.set_value(Some(value.clone().into()));
 
-		ctx.ext.set_storage(key, value);
+		ctx.ext.set_storage(key, Some(value));
 		Ok(())
 	},
 
@@ -672,7 +672,7 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeToken::ClearStorage)?;
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
-	    protege.set_key(Some(key));
+	    protege.set_key(Some(key.to_vec().into()));
 
 		ctx.ext.set_storage(key, None);
 		Ok(())
@@ -697,7 +697,7 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeToken::GetStorageBase)?;
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
-	    protege.set_key(Some(key));
+	    protege.set_key(Some(key.to_vec().into()));
 
 		if let Some(value) = ctx.ext.get_storage(&key) {
 			ctx.write_sandbox_output(out_ptr, out_len_ptr, &value, false, |len| {
@@ -1319,7 +1319,7 @@ define_env!(Env, <E: Ext>,
 
 			delta
 		};
-		protege.set_delta(Some(delta.clone()));
+		protege.set_delta(Some(delta.iter().map(|d| d.to_vec().into()).collect()));
 
 		if let Ok(()) = ctx.ext.restore_to(
 			dest,
