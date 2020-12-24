@@ -41,6 +41,7 @@ pub use self::code_cache::save as save_code;
 #[cfg(feature = "runtime-benchmarks")]
 pub use self::code_cache::save_raw as save_code_raw;
 pub use self::runtime::ReturnCode;
+use crate::trace_runtime::with_runtime;
 
 /// A prepared wasm module ready for execution.
 #[derive(Clone, Encode, Decode)]
@@ -355,6 +356,10 @@ mod tests {
 
 		fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T> {
 			BalanceOf::<Self::T>::from(1312_u32).saturating_mul(weight.into())
+		}
+
+		fn get_depth(&self) -> usize {
+			unimplemented!()
 		}
 	}
 

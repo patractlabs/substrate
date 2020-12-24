@@ -21,7 +21,7 @@ use crate::{
 };
 use sp_core::crypto::UncheckedFrom;
 use sp_std::prelude::*;
-use sp_runtime::traits::{Bounded, Zero, Convert, Saturating};
+use sp_runtime::traits::{Bounded, Zero, Convert, Saturating, SaturatedConversion};
 use frame_support::{
 	dispatch::DispatchError,
 	traits::{ExistenceRequirement, Currency, Time, Randomness},

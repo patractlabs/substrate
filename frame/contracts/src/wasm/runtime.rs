@@ -504,7 +504,7 @@ where
 		input_ptr: u32,
 		input_len: u32,
 		output_ptr: u32,
-	) -> Result<(), sp_sandbox::HostError>
+	) -> Result<(Vec<u8>, R), sp_sandbox::HostError>
 	where
 		F: FnOnce(&[u8]) -> R,
 		R: AsRef<[u8]>,
@@ -515,7 +515,7 @@ where
 		let hash = hash_fn(&input);
 		// Write the resulting hash back into the sandboxed output buffer.
 		self.write_sandbox_memory(output_ptr, hash.as_ref())?;
-		Ok(())
+		Ok((input, hash))
 	}
 
 	/// Stores a DispatchError returned from an Ext function into the trap_reason.

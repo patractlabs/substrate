@@ -89,6 +89,8 @@ mod rent;
 mod benchmarking;
 mod schedule;
 pub mod weights;
+mod trace_runtime;
+mod env_trace;
 
 #[cfg(test)]
 mod tests;
