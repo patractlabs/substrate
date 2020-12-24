@@ -341,7 +341,7 @@ where
 				let transactor_kind = self.transactor_kind();
 				let caller = self.self_account.clone();
 				let dest = Contracts::<T>::contract_address(&caller, code_hash, salt);
-				with_runtime(|r| r.set_self_account(Some(dest.clone().encode().into())));
+				with_runtime(|r| r.set_self_account(dest.clone().encode()));
 
 				// TrieId has not been generated yet and storage is empty since contract is new.
 				//

@@ -1,11 +1,13 @@
 use sp_std::fmt::{self, Formatter};
 use sp_runtime::{RuntimeDebug};
 use crate::{env_trace::{EnvTrace, HexVec}, Gas};
+use sp_core::crypto::AccountId32;
+use sp_std::cmp::min;
 
 #[derive(RuntimeDebug)]
 struct NestedRuntime {
-    caller: HexVec,
-    self_account: Option<HexVec>,
+    caller: AccountId32,
+    self_account: Option<AccountId32>,
     selector: Option<HexVec>,
     args: Option<HexVec>,
     value: u128,
@@ -24,8 +26,8 @@ pub struct NestedRuntimeWrapper {
 impl NestedRuntimeWrapper {
     pub fn new(
         depth: usize,
-        caller: HexVec,
-        self_account: Option<HexVec>,
+        caller: AccountId32,
+        self_account: Option<AccountId32>,
         selector: Option<HexVec>,
         args: Option<HexVec>,
         value: u128,
@@ -63,8 +65,8 @@ impl NestedRuntimeWrapper {
         self.inner.gas_left = left;
     }
 
-    pub fn set_self_account(&mut self, self_account: Option<HexVec>) {
-        self.inner.self_account = self_account;
+    pub fn set_self_account(&mut self, self_account: Vec<u8>) {
+        self.inner.self_account = Some(unchecked_into_account_id32(self_account));
     }
 
     pub fn env_trace_push(&mut self, host_func: EnvTrace) {
@@ -100,6 +102,18 @@ pub fn with_runtime<F: FnOnce(&mut NestedRuntimeWrapper) -> R, R>(f: F) -> Optio
     runtime::with(f)
 }
 
+fn unchecked_into_account_id32(raw_vec: Vec<u8>)-> AccountId32{
+    let mut account = [0u8;32];
+    let border = min(raw_vec.len(), 32);
+    for i in 0..border {
+        account[i] = raw_vec[i]
+    }
+    for i in border..32 {
+        account[i] = raw_vec[i]
+    }
+    AccountId32::from(account)
+}
+
 pub fn with_nested_runtime<F, R>(
     input_data: Vec<u8>,
     dest: Option<Vec<u8>>,
@@ -121,14 +135,14 @@ pub fn with_nested_runtime<F, R>(
         (None, None)
     };
     let dest = if let Some(account) = dest {
-        Some(account.into())
+        Some(unchecked_into_account_id32(account))
     } else {
         None
     };
 
     let mut nest = NestedRuntimeWrapper::new(
         depth,
-        self_account.into(),
+        unchecked_into_account_id32(self_account),
         dest,
         selector,
         args,
