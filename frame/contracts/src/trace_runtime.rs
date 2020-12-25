@@ -108,9 +108,7 @@ fn unchecked_into_account_id32(raw_vec: Vec<u8>)-> AccountId32{
     for i in 0..border {
         account[i] = raw_vec[i]
     }
-    for i in border..32 {
-        account[i] = raw_vec[i]
-    }
+
     AccountId32::from(account)
 }
 
