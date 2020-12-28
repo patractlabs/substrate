@@ -188,8 +188,15 @@ impl<'a, T: Config> ContractModule<'a, T> {
 		Ok(())
 	}
 
-	fn inject_gas_metering(self) -> Result<Self, &'static str> {
+	fn inject_gas_metering(mut self) -> Result<Self, &'static str> {
 		let gas_rules = self.schedule.rules(&self.module);
+
+        // TODO: ugly fix, workaround
+        self.module = match self.module.parse_names() {
+            Ok(module) => module,
+            Err((_, module)) => module,
+        };
+
 		let contract_module = pwasm_utils::inject_gas_counter(
 			self.module,
 			&gas_rules,
@@ -439,7 +446,7 @@ pub fn prepare_contract<C: ImportSatisfyCheck, T: Config>(
 
 	contract_module = contract_module
 		.inject_gas_metering()?
-		.inject_stack_height_metering()?;
+        .inject_stack_height_metering()?;
 
 	Ok(PrefabWasmModule {
 		schedule_version: schedule.version,

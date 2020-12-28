@@ -476,6 +476,7 @@ decl_module! {
 			ensure_signed(origin)?;
 			let schedule = <Module<T>>::current_schedule();
 			ensure!(code.len() as u32 <= schedule.limits.code_size, Error::<T>::CodeTooLarge);
+
 			let result = wasm::save_code::<T>(code, &schedule);
 			if let Ok(code_hash) = result {
 				Self::deposit_event(RawEvent::CodeStored(code_hash));
