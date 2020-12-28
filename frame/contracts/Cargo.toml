@@ -26,7 +26,7 @@ pallet-contracts-primitives = { git = "https://github.com/paritytech/substrate",
 pallet-contracts-proc-macro = { git = "https://github.com/paritytech/substrate", branch = "master" }
 
 parity-wasm = { version = "0.41.0", default-features = false }
-pwasm-utils = { version = "0.16", default-features = false }
+pwasm-utils = { git = "https://github.com/patractlabs/wasm-utils", branch = "v0.16.0" }
 serde = { version = "1.0.101", optional = true, features = ["derive"] }
 
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }

@@ -377,7 +377,11 @@ where
 				Err("validation error")?,
 			// Any other kind of a trap should result in a failure.
 			Err(sp_sandbox::Error::Execution) | Err(sp_sandbox::Error::OutOfBounds) =>
-				Err(Error::<E::T>::ContractTrapped)?
+				Err(Error::<E::T>::ContractTrapped)?,
+            Err(sp_sandbox::Error::WasmiExecution(_e)) => {
+                // TODO: hande `_e`
+                Err(Error::<E::T>::ContractTrapped)?
+            }
 		}
 	}
 
