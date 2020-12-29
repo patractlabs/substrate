@@ -88,6 +88,8 @@ mod wasm;
 mod rent;
 mod benchmarking;
 mod schedule;
+
+pub mod chain_extension;
 pub mod weights;
 mod trace_runtime;
 mod env_trace;
@@ -321,6 +323,9 @@ pub trait Config: frame_system::Config {
 	/// Describes the weights of the dispatchables of this module and is also used to
 	/// construct a default cost schedule.
 	type WeightInfo: WeightInfo;
+
+	/// Type that allows the runtime authors to add new host functions for a contract to call.
+	type ChainExtension: chain_extension::ChainExtension;
 }
 
 decl_error! {
@@ -380,6 +385,18 @@ decl_error! {
 		/// on the call stack. Those actions are contract self destruction and restoration
 		/// of a tombstone.
 		ReentranceDenied,
+		/// `seal_input` was called twice from the same contract execution context.
+		InputAlreadyRead,
+		/// The subject passed to `seal_random` exceeds the limit.
+		RandomSubjectTooLong,
+		/// The amount of topics passed to `seal_deposit_events` exceeds the limit.
+		TooManyTopics,
+		/// The topics passed to `seal_deposit_events` contains at least one duplicate.
+		DuplicateTopics,
+		/// The chain does not provide a chain extension. Calling the chain extension results
+		/// in this error. Note that this usually  shouldn't happen as deploying such contracts
+		/// is rejected.
+		NoChainExtension,
 	}
 }
 
@@ -461,6 +478,7 @@ decl_module! {
 			ensure_signed(origin)?;
 			let schedule = <Module<T>>::current_schedule();
 			ensure!(code.len() as u32 <= schedule.limits.code_size, Error::<T>::CodeTooLarge);
+
 			let result = wasm::save_code::<T>(code, &schedule);
 			if let Ok(code_hash) = result {
 				Self::deposit_event(RawEvent::CodeStored(code_hash));

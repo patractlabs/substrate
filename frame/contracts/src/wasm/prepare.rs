@@ -18,10 +18,11 @@
 //! wasm module before execution. It also extracts some essential information
 //! from a module.
 
-use crate::wasm::env_def::ImportSatisfyCheck;
-use crate::wasm::PrefabWasmModule;
-use crate::{Schedule, Config};
-
+use crate::{
+	Schedule, Config,
+	chain_extension::ChainExtension,
+	wasm::{PrefabWasmModule, env_def::ImportSatisfyCheck},
+};
 use parity_wasm::elements::{self, Internal, External, MemoryType, Type, ValueType};
 use pwasm_utils;
 use sp_std::prelude::*;
@@ -187,8 +188,15 @@ impl<'a, T: Config> ContractModule<'a, T> {
 		Ok(())
 	}
 
-	fn inject_gas_metering(self) -> Result<Self, &'static str> {
+	fn inject_gas_metering(mut self) -> Result<Self, &'static str> {
 		let gas_rules = self.schedule.rules(&self.module);
+
+        // TODO: ugly fix, workaround
+        self.module = match self.module.parse_names() {
+            Ok(module) => module,
+            Err((_, module)) => module,
+        };
+
 		let contract_module = pwasm_utils::inject_gas_counter(
 			self.module,
 			&gas_rules,
@@ -354,6 +362,12 @@ impl<'a, T: Config> ContractModule<'a, T> {
 				return Err("module imports `seal_println` but debug features disabled");
 			}
 
+			if !T::ChainExtension::enabled() &&
+				import.field().as_bytes() == b"seal_call_chain_extension"
+			{
+				return Err("module uses chain extensions but chain extensions are disabled");
+			}
+
 			if import_fn_banlist.iter().any(|f| import.field().as_bytes() == *f)
 				|| !C::can_satisfy(import.field().as_bytes(), func_ty)
 			{
@@ -432,7 +446,7 @@ pub fn prepare_contract<C: ImportSatisfyCheck, T: Config>(
 
 	contract_module = contract_module
 		.inject_gas_metering()?
-		.inject_stack_height_metering()?;
+        .inject_stack_height_metering()?;
 
 	Ok(PrefabWasmModule {
 		schedule_version: schedule.version,
@@ -491,18 +505,24 @@ mod tests {
 		}
 	}
 
-	// Define test environment for tests. We need ImportSatisfyCheck
-	// implementation from it. So actual implementations doesn't matter.
-	define_env!(TestEnv, <E: Ext>,
-		panic(_ctx) => { unreachable!(); },
+	/// Using unreachable statements triggers unreachable warnings in the generated code
+	#[allow(unreachable_code)]
+	mod env {
+		use super::*;
 
-		// gas is an implementation defined function and a contract can't import it.
-		gas(_ctx, _amount: u32) => { unreachable!(); },
+		// Define test environment for tests. We need ImportSatisfyCheck
+		// implementation from it. So actual implementations doesn't matter.
+		define_env!(Test, <E: Ext>,
+			panic(_ctx) => { unreachable!(); },
 
-		nop(_ctx, _unused: u64) => { unreachable!(); },
+			// gas is an implementation defined function and a contract can't import it.
+			gas(_ctx, _amount: u32) => { unreachable!(); },
 
-		seal_println(_ctx, _ptr: u32, _len: u32) => { unreachable!(); },
-	);
+			nop(_ctx, _unused: u64) => { unreachable!(); },
+
+			seal_println(_ctx, _ptr: u32, _len: u32) => { unreachable!(); },
+		);
+	}
 
 	macro_rules! prepare_test {
 		($name:ident, $wat:expr, $($expected:tt)*) => {
@@ -520,7 +540,7 @@ mod tests {
 					},
 					.. Default::default()
 				};
-				let r = prepare_contract::<TestEnv, crate::tests::Test>(wasm.as_ref(), &schedule);
+				let r = prepare_contract::<env::Test, crate::tests::Test>(wasm.as_ref(), &schedule);
 				assert_matches!(r, $($expected)*);
 			}
 		};
@@ -931,7 +951,7 @@ mod tests {
 			).unwrap();
 			let mut schedule = Schedule::default();
 			schedule.enable_println = true;
-			let r = prepare_contract::<TestEnv, crate::tests::Test>(wasm.as_ref(), &schedule);
+			let r = prepare_contract::<env::Test, crate::tests::Test>(wasm.as_ref(), &schedule);
 			assert_matches!(r, Ok(_));
 		}
 	}
