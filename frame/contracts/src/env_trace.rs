@@ -49,7 +49,7 @@ impl<T: Wrapper> Drop for EnvTraceGuard<T> {
                     &(*self.ptr).clone()
                 }
             ))
-        ).unwrap();
+        );
     }
 }
 
