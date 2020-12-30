@@ -31,7 +31,7 @@ use sp_sandbox;
 mod env_def;
 mod code_cache;
 mod prepare;
-mod runtime;
+pub mod runtime;
 
 use self::code_cache::load as load_code;
 use pallet_contracts_primitives::ExecResult;

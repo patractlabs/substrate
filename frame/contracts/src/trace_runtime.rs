@@ -1,8 +1,9 @@
 use sp_std::fmt::{self, Formatter};
 use sp_runtime::{RuntimeDebug};
-use crate::{env_trace::{EnvTrace, HexVec}, Gas};
 use sp_core::crypto::AccountId32;
 use sp_std::cmp::min;
+
+use crate::{env_trace::{EnvTrace, HexVec}, Gas, wasm::runtime::TrapReason};
 
 #[derive(RuntimeDebug)]
 struct NestedRuntime {
@@ -15,7 +16,7 @@ struct NestedRuntime {
     gas_left: Gas,
     env_trace: Vec<EnvTrace>,
     nest: Vec<NestedRuntimeWrapper>,
-    // trap_reason: Option<TrapReason>,
+    trap_reason: Option<TrapReason>,
 }
 
 pub struct NestedRuntimeWrapper {
@@ -45,6 +46,7 @@ impl NestedRuntimeWrapper {
                 gas_left: gas_limit,
                 env_trace: Vec::new(),
                 nest: Vec::new(),
+                trap_reason: None,
             },
         }
     }
@@ -72,6 +74,10 @@ impl NestedRuntimeWrapper {
     pub fn env_trace_push(&mut self, host_func: EnvTrace) {
         let env_trace = &mut self.inner.env_trace;
         env_trace.push(host_func);
+    }
+
+    pub fn set_trap_reason(&mut self, trap_reason: TrapReason) {
+        self.inner.trap_reason = Some(trap_reason);
     }
 }
 

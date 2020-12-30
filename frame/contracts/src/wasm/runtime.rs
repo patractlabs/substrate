@@ -29,7 +29,7 @@ use frame_system;
 use frame_support::dispatch::DispatchError;
 use sp_std::prelude::*;
 use codec::{Decode, DecodeAll, Encode};
-use sp_runtime::traits::SaturatedConversion;
+use sp_runtime::{traits::SaturatedConversion, RuntimeDebug};
 use sp_core::crypto::UncheckedFrom;
 use sp_io::hashing::{
 	keccak_256,
@@ -91,6 +91,7 @@ impl From<ExecReturnValue> for ReturnCode {
 }
 
 /// The data passed through when a contract uses `seal_return`.
+#[derive(RuntimeDebug, Clone)]
 pub struct ReturnData {
 	/// The flags as passed through by the contract. They are still unchecked and
 	/// will later be parsed into a `ReturnFlags` bitflags struct.
@@ -105,6 +106,7 @@ pub struct ReturnData {
 /// occurred (the SupervisorError variant).
 /// The other case is where the trap does not constitute an error but rather was invoked
 /// as a quick way to terminate the application (all other variants).
+#[derive(RuntimeDebug, Clone)]
 pub enum TrapReason {
 	/// The supervisor trapped the contract because of an error condition occurred during
 	/// execution in privileged code.
