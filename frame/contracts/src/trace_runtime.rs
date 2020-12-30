@@ -1,11 +1,11 @@
 use sp_std::fmt::{self, Formatter};
-use sp_runtime::{RuntimeDebug};
 use sp_core::crypto::AccountId32;
 use sp_std::cmp::min;
+use sp_sandbox::Error;
 
 use crate::{env_trace::{EnvTrace, HexVec}, Gas, wasm::runtime::TrapReason};
 
-#[derive(RuntimeDebug)]
+#[derive(Debug)]
 struct NestedRuntime {
     caller: AccountId32,
     self_account: Option<AccountId32>,
@@ -21,6 +21,7 @@ struct NestedRuntime {
 
 pub struct NestedRuntimeWrapper {
     depth: usize,
+    wasm_error: Option<Error>,
     inner: NestedRuntime,
 }
 
@@ -48,6 +49,7 @@ impl NestedRuntimeWrapper {
                 nest: Vec::new(),
                 trap_reason: None,
             },
+            wasm_error: None
         }
     }
 
@@ -79,11 +81,19 @@ impl NestedRuntimeWrapper {
     pub fn set_trap_reason(&mut self, trap_reason: TrapReason) {
         self.inner.trap_reason = Some(trap_reason);
     }
+
+    pub fn set_wasm_error(&mut self, wasm_error: Error) {
+        self.wasm_error = Some(wasm_error);
+    }
 }
 
 impl fmt::Debug for NestedRuntimeWrapper {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {:#?}", self.depth, self.inner)
+        if let Some(e)= &self.wasm_error {
+            write!(f, "{}: {:#?}\n{:?}", self.depth, self.inner, e)
+        } else {
+            write!(f, "{}: {:#?}", self.depth, self.inner)
+        }
     }
 }
 

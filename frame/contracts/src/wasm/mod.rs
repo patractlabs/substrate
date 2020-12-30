@@ -154,8 +154,11 @@ where
 		// entrypoint.
 		let result = sp_sandbox::Instance::new(&exec.prefab_module.code, &imports, &mut runtime)
 			.and_then(|mut instance| instance.invoke(exec.entrypoint_name, &[], &mut runtime));
-		let ext_result = runtime.to_execution_result(result);
+		let ext_result = runtime.to_execution_result(&result);
 		with_runtime(|r| r.set_gas_left(gas_meter.gas_left()));
+		if let Err(e) = result {
+			with_runtime(|r| r.set_wasm_error(e));
+		}
 		ext_result
 	}
 }

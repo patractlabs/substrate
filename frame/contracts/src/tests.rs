@@ -195,18 +195,18 @@ impl frame_system::Config for Test {
 	type BaseCallFilter = ();
 	type BlockWeights = ();
 	type BlockLength = ();
-	type DbWeight = ();
 	type Origin = Origin;
+	type Call = Call;
 	type Index = u64;
 	type BlockNumber = u64;
 	type Hash = H256;
-	type Call = Call;
 	type Hashing = BlakeTwo256;
 	type AccountId = AccountId32;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = MetaEvent;
 	type BlockHashCount = BlockHashCount;
+	type DbWeight = ();
 	type Version = ();
 	type PalletInfo = ();
 	type AccountData = pallet_balances::AccountData<u64>;
@@ -2145,7 +2145,7 @@ fn chain_extension_works() {
 
 #[test]
 fn wasm_trap() {
-	let (wasm, code_hash) = load_module::<Test>("trace").unwrap();
+	let (wasm, code_hash) = load_module::<Test>("flipper_trace").unwrap();
 
 	ExtBuilder::default()
 		.existential_deposit(50)
@@ -2165,12 +2165,20 @@ fn wasm_trap() {
 			));
 
 			let addr = Contracts::contract_address(&ALICE, &code_hash, &[]);
+			// assert_ok!(Contracts::call(
+			// 	Origin::signed(ALICE),
+			// 	addr.clone(),
+			// 	0,
+			// 	GAS_LIMIT,
+			// 	vec![192, 150, 165, 243],
+			// ));
+
 			assert_ok!(Contracts::call(
 				Origin::signed(ALICE),
 				addr.clone(),
 				0,
 				GAS_LIMIT,
-				vec![192, 150, 165, 243],
+				vec![104, 99, 239, 249],
 			));
 
 		})
