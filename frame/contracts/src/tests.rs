@@ -2165,21 +2165,21 @@ fn wasm_trap() {
 			));
 
 			let addr = Contracts::contract_address(&ALICE, &code_hash, &[]);
-			// assert_ok!(Contracts::call(
-			// 	Origin::signed(ALICE),
-			// 	addr.clone(),
-			// 	0,
-			// 	GAS_LIMIT,
-			// 	vec![192, 150, 165, 243],
-			// ));
-
 			assert_ok!(Contracts::call(
 				Origin::signed(ALICE),
 				addr.clone(),
 				0,
 				GAS_LIMIT,
-				vec![104, 99, 239, 249],
+				vec![192, 150, 165, 243],
 			));
+
+			assert_err_ignore_postinfo!(Contracts::call(
+				Origin::signed(ALICE),
+				addr.clone(),
+				0,
+				GAS_LIMIT,
+				vec![104, 99, 239, 249],
+			), Error::<Test>::ContractTrapped);
 
 		})
 }
