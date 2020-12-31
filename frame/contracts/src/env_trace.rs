@@ -59,6 +59,12 @@ pub struct Gas {
     amount: Option<u32>,
 }
 
+impl Gas {
+    pub fn is_none(&self) -> bool {
+        self.amount.is_none()
+    }
+}
+
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealSetStorage {
     #[set]

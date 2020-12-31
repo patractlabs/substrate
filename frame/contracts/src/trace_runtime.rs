@@ -5,7 +5,22 @@ use sp_sandbox::Error;
 
 use crate::{env_trace::{EnvTrace, HexVec}, Gas, wasm::runtime::TrapReason};
 
-#[derive(Debug)]
+struct EnvTraceList(Vec<EnvTrace>);
+impl fmt::Debug for EnvTraceList {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.0.iter()
+            .filter(|t| {
+                if let EnvTrace::Gas(g) = t {
+                    g.is_none()
+                } else {
+                    true
+                }
+            }))
+            .finish()
+    }
+}
+
+#[derive(sp_core::RuntimeDebug)]
 struct NestedRuntime {
     caller: AccountId32,
     self_account: Option<AccountId32>,
@@ -14,7 +29,7 @@ struct NestedRuntime {
     value: u128,
     gas_limit: Gas,
     gas_left: Gas,
-    env_trace: Vec<EnvTrace>,
+    env_trace: EnvTraceList,
     nest: Vec<NestedRuntimeWrapper>,
 }
 
@@ -45,7 +60,7 @@ impl NestedRuntimeWrapper {
                 value,
                 gas_limit,
                 gas_left: gas_limit,
-                env_trace: Vec::new(),
+                env_trace: EnvTraceList(Vec::new()),
                 nest: Vec::new(),
             },
             wasm_error: None,
@@ -75,7 +90,7 @@ impl NestedRuntimeWrapper {
 
     pub fn env_trace_push(&mut self, host_func: EnvTrace) {
         let env_trace = &mut self.inner.env_trace;
-        env_trace.push(host_func);
+        env_trace.0.push(host_func);
     }
 
     pub fn set_trap_reason(&mut self, trap_reason: TrapReason) {
