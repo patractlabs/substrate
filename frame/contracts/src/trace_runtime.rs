@@ -16,12 +16,12 @@ struct NestedRuntime {
     gas_left: Gas,
     env_trace: Vec<EnvTrace>,
     nest: Vec<NestedRuntimeWrapper>,
-    trap_reason: Option<TrapReason>,
 }
 
 pub struct NestedRuntimeWrapper {
     depth: usize,
     wasm_error: Option<Error>,
+    trap_reason: Option<TrapReason>,
     inner: NestedRuntime,
 }
 
@@ -47,9 +47,9 @@ impl NestedRuntimeWrapper {
                 gas_left: gas_limit,
                 env_trace: Vec::new(),
                 nest: Vec::new(),
-                trap_reason: None,
             },
-            wasm_error: None
+            wasm_error: None,
+            trap_reason: None,
         }
     }
 
@@ -79,7 +79,7 @@ impl NestedRuntimeWrapper {
     }
 
     pub fn set_trap_reason(&mut self, trap_reason: TrapReason) {
-        self.inner.trap_reason = Some(trap_reason);
+        self.trap_reason = Some(trap_reason);
     }
 
     pub fn set_wasm_error(&mut self, wasm_error: Error) {
@@ -89,11 +89,16 @@ impl NestedRuntimeWrapper {
 
 impl fmt::Debug for NestedRuntimeWrapper {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut arg = format!("{}: {:#?}", self.depth, self.inner);
         if let Some(e)= &self.wasm_error {
-            write!(f, "{}: {:#?}\n{:?}", self.depth, self.inner, e)
-        } else {
-            write!(f, "{}: {:#?}", self.depth, self.inner)
+            let err_str = format!("\n{:?}", e);
+            arg += &err_str;
         }
+        if let Some(trap) = &self.trap_reason {
+            let trap_str = format!("\n{:?}", trap);
+            arg += &trap_str;
+        }
+        f.write_str(&arg)
     }
 }
 
