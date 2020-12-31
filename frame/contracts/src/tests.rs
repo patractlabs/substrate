@@ -337,17 +337,6 @@ where
 	Ok((wasm_binary, code_hash))
 }
 
-fn load_module<T>(wasm_name: &str)
-	-> Result<(Vec<u8>, <T::Hashing as Hash>::Output), std::io::Error>
-	where
-		T: frame_system::Config,
-{
-	let wasm_path = ["fixtures/", wasm_name, ".wasm"].concat();
-	let wasm_binary = std::fs::read(wasm_path)?;
-	let code_hash = T::Hashing::hash(&wasm_binary);
-	Ok((wasm_binary, code_hash))
-}
-
 // Perform a call to a plain account.
 // The actual transfer fails because we can only call contracts.
 // Then we check that no gas was used because the base costs for calling are either charged
@@ -2142,45 +2131,3 @@ fn chain_extension_works() {
 		assert_eq!(result.data, vec![42, 99]);
 	});
 }
-
-#[test]
-fn wasm_trap() {
-	let (wasm, code_hash) = load_module::<Test>("flipper_trace").unwrap();
-
-	ExtBuilder::default()
-		.existential_deposit(50)
-		.build()
-		.execute_with(|| {
-			let _ = Balances::deposit_creating(&ALICE, 1_000_000);
-			assert_ok!(Contracts::put_code(Origin::signed(ALICE), wasm));
-
-			// Instantiate the CRYPTO_HASHES contract.
-			assert_ok!(Contracts::instantiate(
-				Origin::signed(ALICE),
-				100_000,
-				GAS_LIMIT,
-				code_hash.into(),
-				vec![106, 55, 18, 226],
-				vec![],
-			));
-
-			let addr = Contracts::contract_address(&ALICE, &code_hash, &[]);
-			assert_ok!(Contracts::call(
-				Origin::signed(ALICE),
-				addr.clone(),
-				0,
-				GAS_LIMIT,
-				vec![192, 150, 165, 243],
-			));
-
-			assert_err_ignore_postinfo!(Contracts::call(
-				Origin::signed(ALICE),
-				addr.clone(),
-				0,
-				GAS_LIMIT,
-				vec![104, 99, 239, 249],
-			), Error::<Test>::ContractTrapped);
-
-		})
-}
-

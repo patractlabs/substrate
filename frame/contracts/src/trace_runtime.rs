@@ -6,6 +6,7 @@ use sp_sandbox::Error;
 use crate::{env_trace::{EnvTrace, HexVec}, Gas, wasm::runtime::TrapReason};
 
 struct EnvTraceList(Vec<EnvTrace>);
+
 impl fmt::Debug for EnvTraceList {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.0.iter()
