@@ -447,7 +447,7 @@ pub fn prepare_contract<C: ImportSatisfyCheck, T: Config>(
 
 	contract_module = contract_module
 		.inject_gas_metering()?
-        .inject_stack_height_metering()?;
+		.inject_stack_height_metering()?;
 
 	Ok(PrefabWasmModule {
 		schedule_version: schedule.version,
