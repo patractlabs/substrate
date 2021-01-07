@@ -459,6 +459,7 @@ pub fn prepare_contract<C: ImportSatisfyCheck, T: Config>(
 	)?;
 
 	contract_module = contract_module
+		// `parse_name_section` must be called before `inject_gas_metering`
 		.parse_name_section()
 		.inject_gas_metering()?
 		.inject_stack_height_metering()?;
