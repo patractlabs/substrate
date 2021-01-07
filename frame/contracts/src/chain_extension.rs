@@ -145,7 +145,7 @@ pub struct Environment<'a, 'b, E: Ext, S: state::State> {
 	/// The actual data of this type.
 	inner: Inner<'a, 'b, E>,
 	/// `S` is only used in the type system but never as value.
-	state: PhantomData<S>,
+	phantom: PhantomData<S>,
 }
 
 /// Functions that are available in every state of this type.
@@ -198,7 +198,7 @@ impl<'a, 'b, E: Ext> Environment<'a, 'b, E, state::Init> {
 				output_ptr,
 				output_len_ptr,
 			},
-			state: PhantomData,
+			phantom: PhantomData,
 		}
 	}
 
@@ -206,7 +206,7 @@ impl<'a, 'b, E: Ext> Environment<'a, 'b, E, state::Init> {
 	pub fn only_in(self) -> Environment<'a, 'b, E, state::OnlyIn> {
 		Environment {
 			inner: self.inner,
-			state: PhantomData,
+			phantom: PhantomData,
 		}
 	}
 
@@ -214,7 +214,7 @@ impl<'a, 'b, E: Ext> Environment<'a, 'b, E, state::Init> {
 	pub fn prim_in_buf_out(self) -> Environment<'a, 'b, E, state::PrimInBufOut> {
 		Environment {
 			inner: self.inner,
-			state: PhantomData,
+			phantom: PhantomData,
 		}
 	}
 
@@ -222,7 +222,7 @@ impl<'a, 'b, E: Ext> Environment<'a, 'b, E, state::Init> {
 	pub fn buf_in_buf_out(self) -> Environment<'a, 'b, E, state::BufInBufOut> {
 		Environment {
 			inner: self.inner,
-			state: PhantomData,
+			phantom: PhantomData,
 		}
 	}
 }
@@ -326,9 +326,9 @@ where
 	///
 	/// If the contract supplied buffer is smaller than the passed `buffer` an `Err` is returned.
 	/// If `allow_skip` is set to true the contract is allowed to skip the copying of the buffer
-	/// by supplying the guard value of [`u32::max_value()`] as `input_len_ptr`. The
-	/// `weight_per_byte` is charged per actually copied byte meaning
-	/// `min(buffer.len, *input_len_ptr)`.
+	/// by supplying the guard value of [`u32::max_value()`] as `out_ptr`. The
+	/// `weight_per_byte` is only charged when the write actually happens and is not skipped or
+	/// failed due to a too small output buffer.
 	pub fn write(
 		&mut self,
 		buffer: &[u8],
