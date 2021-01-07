@@ -23,14 +23,17 @@ frame-system = { version = "2.0.0", default-features = false, git = "https://git
 pallet-contracts-primitives = { version = "2.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 pallet-contracts-proc-macro = { version = "0.1.0", path = "proc-macro" }
 parity-wasm = { version = "0.41.0", default-features = false }
-pwasm-utils = { version = "0.16", default-features = false }
+# pwasm-utils = { version = "0.16", default-features = false }
 serde = { version = "1.0.101", optional = true, features = ["derive"] }
 sp-core = { version = "2.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-runtime = { version = "2.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-io = { version = "2.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-std = { version = "2.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
-sp-sandbox = { version = "0.8.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
+# sp-sandbox = { version = "0.8.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 wasmi-validation = { version = "0.3.0", default-features = false }
+
+pwasm-utils = { git = "https://github.com/patractlabs/wasm-utils", branch = "v0.16.0" }
+sp-sandbox = { package = "ep-sandbox", path = "../../../../primitives/sandbox", default-features = false }
 
 # Only used in benchmarking to generate random contract code
 rand = { version = "0.7.0", optional = true, default-features = false }
