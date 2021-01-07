@@ -211,7 +211,6 @@ impl<'a, T: Config> ContractModule<'a, T> {
 
 	fn inject_gas_metering(self) -> Result<Self, &'static str> {
 		let gas_rules = self.schedule.rules(&self.module);
-
 		let contract_module = pwasm_utils::inject_gas_counter(
 			self.module,
 			&gas_rules,
