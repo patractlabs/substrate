@@ -1,18 +1,19 @@
-// Copyright 2018-2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
-// Substrate is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 
-// Substrate is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with Substrate. If not, see <http://www.gnu.org/licenses/>.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 //! Environment definition of the wasm smart-contract runtime.
 
@@ -23,10 +24,8 @@ use crate::{
 	wasm::env_def::ConvertibleToWasm,
 	env_trace::*
 };
-use sp_sandbox;
 use parity_wasm::elements::ValueType;
-use frame_system;
-use frame_support::dispatch::DispatchError;
+use frame_support::{dispatch::DispatchError, ensure};
 use sp_std::prelude::*;
 use codec::{Decode, DecodeAll, Encode};
 use sp_runtime::{traits::SaturatedConversion, RuntimeDebug};
@@ -424,6 +423,7 @@ where
 	pub fn read_sandbox_memory(&self, ptr: u32, len: u32)
 	-> Result<Vec<u8>, DispatchError>
 	{
+		ensure!(len <= self.schedule.limits.max_memory_size(), Error::<E::T>::OutOfBounds);
 		let mut buf = vec![0u8; len as usize];
 		self.memory.get(ptr, buf.as_mut_slice())
 			.map_err(|_| Error::<E::T>::OutOfBounds)?;
@@ -453,7 +453,7 @@ where
 	/// It is safe to forgo benchmarking and charging weight relative to `len` for fixed
 	/// size types (basically everything not containing a heap collection):
 	/// Despite the fact that we are usually about to read the encoding of a fixed size
-	/// type, we cannot know the ecoded size of that type. We therefore are required to
+	/// type, we cannot know the encoded size of that type. We therefore are required to
 	/// use the length provided by the contract. This length is untrusted and therefore
 	/// we charge weight relative to the provided size upfront that covers the copy costs.
 	/// On success this cost is refunded as the copying was already covered in the
@@ -980,6 +980,8 @@ define_env!(Env, <E: Ext>,
 	// # Traps
 	//
 	// - The contract is live i.e is already on the call stack.
+	// - Failed to send the balance to the beneficiary.
+	// - The deletion queue is full.
 	seal_terminate(
 		ctx,
 		beneficiary_ptr: u32,
@@ -994,7 +996,7 @@ define_env!(Env, <E: Ext>,
 		protege.set_beneficiary(Some(beneficiary.encode().into()));
 
 		ctx.ext.terminate(&beneficiary)?;
-		Err(TrapReason::Termination.into())
+		Err(TrapReason::Termination)
 	},
 
 	seal_input(ctx, buf_ptr: u32, buf_len_ptr: u32) => {
@@ -1308,17 +1310,23 @@ define_env!(Env, <E: Ext>,
 		protege.set_rent_allowance(Some(rent_allowance.saturated_into()));
 
 		let delta = {
+			const KEY_SIZE: usize = 32;
+
 			// We can eagerly allocate because we charged for the complete delta count already
-			let mut delta = Vec::with_capacity(delta_count as usize);
+			// We still need to make sure that the allocation isn't larger than the memory
+			// allocator can handle.
+			ensure!(
+				delta_count
+					.saturating_mul(KEY_SIZE as u32) <= ctx.schedule.limits.max_memory_size(),
+				Error::<E::T>::OutOfBounds,
+			);
+			let mut delta = vec![[0; KEY_SIZE]; delta_count as usize];
 			let mut key_ptr = delta_ptr;
 
-			for _ in 0..delta_count {
-				const KEY_SIZE: usize = 32;
-
-				// Read the delta into the provided buffer and collect it into the buffer.
-				let mut delta_key: StorageKey = [0; KEY_SIZE];
-				ctx.read_sandbox_memory_into_buf(key_ptr, &mut delta_key)?;
-				delta.push(delta_key);
+			for i in 0..delta_count {
+				// Read the delta into the provided buffer
+				// This cannot panic because of the loop condition
+				ctx.read_sandbox_memory_into_buf(key_ptr, &mut delta[i as usize])?;
 
 				// Offset key_ptr to the next element.
 				key_ptr = key_ptr.checked_add(KEY_SIZE as u32).ok_or(Error::<E::T>::OutOfBounds)?;
@@ -1329,7 +1337,7 @@ define_env!(Env, <E: Ext>,
 		protege.set_delta(Some(delta.iter().map(|d| d.to_vec().into()).collect()));
 
 		ctx.ext.restore_to(dest, code_hash, rent_allowance, delta)?;
-		Err(TrapReason::Restoration.into())
+		Err(TrapReason::Restoration)
 	},
 
 	// Deposit a contract event with the data buffer and optional list of topics. There is a limit

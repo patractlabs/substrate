@@ -1,18 +1,19 @@
-// Copyright 2018-2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
-// Substrate is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Copyright (C) 2018-2021 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 
-// Substrate is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with Substrate. If not, see <http://www.gnu.org/licenses/>.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 //! This module takes care of loading, checking and preprocessing of a
 //! wasm module before execution. It also extracts some essential information
@@ -188,15 +189,28 @@ impl<'a, T: Config> ContractModule<'a, T> {
 		Ok(())
 	}
 
-	fn inject_gas_metering(mut self) -> Result<Self, &'static str> {
+	/// If this WASM has Name Section part in Custom Section, deserialize them and put them
+	/// as `Section::Name` in same place.
+	/// **If wanna use Name Section feature, this function must be called before `inject_gas_metering`**
+	fn parse_name_section(self) -> Self {
+		let module = match self.module.parse_names() {
+			Ok(module) => module,
+			Err((err_info, module)) => {
+				frame_support::debug::error!("parse name section error: {:?}", err_info);
+				module
+			},
+		};
+		if !module.has_names_section() {
+			frame_support::debug::info!("💡 this contract do not have name section part, could not support WASM backtrace or WASM debug.");
+		}
+		ContractModule {
+			module,
+			schedule: self.schedule,
+		}
+	}
+
+	fn inject_gas_metering(self) -> Result<Self, &'static str> {
 		let gas_rules = self.schedule.rules(&self.module);
-
-        // TODO: ugly fix, workaround
-        self.module = match self.module.parse_names() {
-            Ok(module) => module,
-            Err((_, module)) => module,
-        };
-
 		let contract_module = pwasm_utils::inject_gas_counter(
 			self.module,
 			&gas_rules,
@@ -445,8 +459,10 @@ pub fn prepare_contract<C: ImportSatisfyCheck, T: Config>(
 	)?;
 
 	contract_module = contract_module
+		// `parse_name_section` must be called before `inject_gas_metering`
+		.parse_name_section()
 		.inject_gas_metering()?
-        .inject_stack_height_metering()?;
+		.inject_stack_height_metering()?;
 
 	Ok(PrefabWasmModule {
 		schedule_version: schedule.version,
