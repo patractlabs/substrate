@@ -189,14 +189,28 @@ impl<'a, T: Config> ContractModule<'a, T> {
 		Ok(())
 	}
 
-	fn inject_gas_metering(mut self) -> Result<Self, &'static str> {
-		let gas_rules = self.schedule.rules(&self.module);
+	/// If this WASM has Name Section part in Custom Section, deserialize them and put them
+	/// as `Section::Name` in same place.
+	/// **If wanna use Name Section feature, this function must be called before `inject_gas_metering`**
+	fn parse_name_section(self) -> Self {
+		let module = match self.module.parse_names() {
+			Ok(module) => module,
+			Err((err_info, module)) => {
+				frame_support::debug::error!("parse name section error: {:?}", err_info);
+				module
+			},
+		};
+		if !module.has_names_section() {
+			frame_support::debug::info!("💡 this contract do not have name section part, could not support WASM backtrace or WASM debug.");
+		}
+		ContractModule {
+			module,
+			schedule: self.schedule,
+		}
+	}
 
-        // TODO: ugly fix, workaround
-        self.module = match self.module.parse_names() {
-            Ok(module) => module,
-            Err((_, module)) => module,
-        };
+	fn inject_gas_metering(self) -> Result<Self, &'static str> {
+		let gas_rules = self.schedule.rules(&self.module);
 
 		let contract_module = pwasm_utils::inject_gas_counter(
 			self.module,
@@ -446,6 +460,7 @@ pub fn prepare_contract<C: ImportSatisfyCheck, T: Config>(
 	)?;
 
 	contract_module = contract_module
+		.parse_name_section()
 		.inject_gas_metering()?
 		.inject_stack_height_metering()?;
 
