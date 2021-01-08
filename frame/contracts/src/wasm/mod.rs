@@ -32,7 +32,7 @@ use sp_sandbox;
 mod env_def;
 mod code_cache;
 mod prepare;
-mod runtime;
+pub mod runtime;
 
 use self::code_cache::load as load_code;
 use pallet_contracts_primitives::ExecResult;
@@ -41,6 +41,7 @@ pub use self::code_cache::save as save_code;
 #[cfg(feature = "runtime-benchmarks")]
 pub use self::code_cache::save_raw as save_code_raw;
 pub use self::runtime::{ReturnCode, Runtime, RuntimeToken};
+use crate::trace_runtime::with_runtime;
 
 /// A prepared wasm module ready for execution.
 #[derive(Clone, Encode, Decode)]
@@ -154,7 +155,12 @@ where
 		// entrypoint.
 		let result = sp_sandbox::Instance::new(&exec.prefab_module.code, &imports, &mut runtime)
 			.and_then(|mut instance| instance.invoke(exec.entrypoint_name, &[], &mut runtime));
-		runtime.to_execution_result(result)
+		let ext_result = runtime.to_execution_result(&result);
+		with_runtime(|r| r.set_gas_left(gas_meter.gas_left()));
+		if let Err(e) = result {
+			with_runtime(|r| r.set_wasm_error(e));
+		}
+		ext_result
 	}
 }
 
@@ -354,6 +360,10 @@ mod tests {
 		fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T> {
 			BalanceOf::<Self::T>::from(1312_u32).saturating_mul(weight.into())
 		}
+
+		fn get_depth(&self) -> usize {
+			unimplemented!()
+		}
 	}
 
 	impl Ext for &mut MockExt {
@@ -452,6 +462,10 @@ mod tests {
 		}
 		fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T> {
 			(**self).get_weight_price(weight)
+		}
+
+		fn get_depth(&self) -> usize {
+			unimplemented!()
 		}
 	}
 

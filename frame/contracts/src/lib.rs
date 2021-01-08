@@ -92,6 +92,8 @@ mod schedule;
 
 pub mod chain_extension;
 pub mod weights;
+mod trace_runtime;
+mod env_trace;
 
 #[cfg(test)]
 mod tests;

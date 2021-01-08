@@ -35,6 +35,12 @@ wasmi-validation = { version = "0.3.0", default-features = false }
 pwasm-utils = { git = "https://github.com/patractlabs/wasm-utils", branch = "v0.16.0" }
 sp-sandbox = { package = "ep-sandbox", path = "../../../../primitives/sandbox", default-features = false }
 
+# used in env_trace
+environmental = { version = "1.1.2", default-features = false }
+derivative = "2.1.1"
+add_getters_setters = "1.1.2"
+hex = "0.4.2"
+
 # Only used in benchmarking to generate random contract code
 rand = { version = "0.7.0", optional = true, default-features = false }
 rand_pcg = { version = "0.2.1", optional = true }
@@ -66,6 +72,7 @@ std = [
 	"wasmi-validation/std",
 	"pallet-contracts-primitives/std",
 	"pallet-contracts-proc-macro/full",
+	"environmental/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking",

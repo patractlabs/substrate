@@ -111,7 +111,8 @@ macro_rules! unmarshall_then_body_then_marshall {
 			unmarshall_then_body!($body, $ctx, $args_iter, $( $names : $params ),*)
 		});
 		let r = body().map_err(|reason| {
-			$ctx.set_trap_reason(reason);
+			$ctx.set_trap_reason(reason.clone());
+			$crate::trace_runtime::with_runtime(|r| r.set_trap_reason(reason));
 			sp_sandbox::HostError
 		})?;
 		return Ok(sp_sandbox::ReturnValue::Value({ use $crate::wasm::env_def::ConvertibleToWasm; r.to_typed_value() }))
@@ -121,7 +122,8 @@ macro_rules! unmarshall_then_body_then_marshall {
 			unmarshall_then_body!($body, $ctx, $args_iter, $( $names : $params ),*)
 		});
 		body().map_err(|reason| {
-			$ctx.set_trap_reason(reason);
+			$ctx.set_trap_reason(reason.clone());
+			$crate::trace_runtime::with_runtime(|r| r.set_trap_reason(reason));
 			sp_sandbox::HostError
 		})?;
 		return Ok(sp_sandbox::ReturnValue::Unit)

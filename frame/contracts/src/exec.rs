@@ -18,11 +18,11 @@
 use crate::{
 	CodeHash, ConfigCache, Event, RawEvent, Config, Module as Contracts,
 	TrieId, BalanceOf, ContractInfo, gas::GasMeter, rent::Rent, storage::{self, Storage},
-	Error, ContractInfoOf
+	Error, ContractInfoOf, trace_runtime::{with_runtime, with_nested_runtime},
 };
 use sp_core::crypto::UncheckedFrom;
 use sp_std::prelude::*;
-use sp_runtime::traits::{Bounded, Zero, Convert, Saturating};
+use sp_runtime::traits::{Bounded, Zero, Convert, Saturating, SaturatedConversion};
 use frame_support::{
 	dispatch::DispatchError,
 	traits::{ExistenceRequirement, Currency, Time, Randomness},
@@ -30,6 +30,7 @@ use frame_support::{
 	ensure, StorageMap,
 };
 use pallet_contracts_primitives::{ErrorOrigin, ExecError, ExecReturnValue, ExecResult, ReturnFlags};
+use codec::Encode;
 
 pub type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 pub type MomentOf<T> = <<T as Config>::Time as Time>::Moment;
@@ -168,6 +169,9 @@ pub trait Ext {
 
 	/// Returns the price for the specified amount of weight.
 	fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T>;
+
+	/// Returns the depth for current execution
+	fn get_depth(&self) -> usize;
 }
 
 /// Loader is a companion of the `Vm` trait. It loads an appropriate abstract
@@ -264,46 +268,55 @@ where
 		gas_meter: &mut GasMeter<T>,
 		input_data: Vec<u8>,
 	) -> ExecResult {
-		if self.depth == self.config.max_depth as usize {
-			Err(Error::<T>::MaxCallDepthReached)?
-		}
+		with_nested_runtime(
+			input_data.clone(),
+			Some(dest.clone().encode()),
+			gas_meter.gas_left(),
+			value.saturated_into::<u128>(),
+			self.depth + 1,
+			self.self_account.clone().encode(),
+			|| {
+				if self.depth == self.config.max_depth as usize {
+					Err(Error::<T>::MaxCallDepthReached)?
+				}
 
-		// This charges the rent and denies access to a contract that is in need of
-		// eviction by returning `None`. We cannot evict eagerly here because those
-		// changes would be rolled back in case this contract is called by another
-		// contract.
-		// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
-		let contract = if let Ok(Some(ContractInfo::Alive(info))) = Rent::<T>::charge(&dest) {
-			info
-		} else {
-			Err(Error::<T>::NotCallable)?
-		};
+				// This charges the rent and denies access to a contract that is in need of
+				// eviction by returning `None`. We cannot evict eagerly here because those
+				// changes would be rolled back in case this contract is called by another
+				// contract.
+				// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
+				let contract = if let Ok(Some(ContractInfo::Alive(info))) = Rent::<T>::charge(&dest) {
+					info
+				} else {
+					Err(Error::<T>::NotCallable)?
+				};
 
-		let transactor_kind = self.transactor_kind();
-		let caller = self.self_account.clone();
+				let transactor_kind = self.transactor_kind();
+				let caller = self.self_account.clone();
 
-		self.with_nested_context(dest.clone(), contract.trie_id.clone(), |nested| {
-			if value > BalanceOf::<T>::zero() {
-				transfer(
-					TransferCause::Call,
-					transactor_kind,
-					&caller,
-					&dest,
-					value,
-					nested,
-				)?
-			}
+				self.with_nested_context(dest.clone(), contract.trie_id.clone(), |nested| {
+					if value > BalanceOf::<T>::zero() {
+						transfer(
+							TransferCause::Call,
+							transactor_kind,
+							&caller,
+							&dest,
+							value,
+							nested,
+						)?
+					}
 
-			let executable = nested.loader.load_main(&contract.code_hash)
-				.map_err(|_| Error::<T>::CodeNotFound)?;
-			let output = nested.vm.execute(
-				&executable,
-				nested.new_call_context(caller, value),
-				input_data,
-				gas_meter,
-			).map_err(|e| ExecError { error: e.error, origin: ErrorOrigin::Callee })?;
-			Ok(output)
-		})
+					let executable = nested.loader.load_main(&contract.code_hash)
+						.map_err(|_| Error::<T>::CodeNotFound)?;
+					let output = nested.vm.execute(
+						&executable,
+						nested.new_call_context(caller, value),
+						input_data,
+						gas_meter,
+					).map_err(|e| ExecError { error: e.error, origin: ErrorOrigin::Callee })?;
+					Ok(output)
+				})
+			})
 	}
 
 	pub fn instantiate(
@@ -314,64 +327,74 @@ where
 		input_data: Vec<u8>,
 		salt: &[u8],
 	) -> Result<(T::AccountId, ExecReturnValue), ExecError> {
-		if self.depth == self.config.max_depth as usize {
-			Err(Error::<T>::MaxCallDepthReached)?
-		}
+		with_nested_runtime(
+			input_data.clone(),
+			None,
+			gas_meter.gas_left(),
+			endowment.saturated_into::<u128>(),
+			self.depth + 1,
+			self.self_account.clone().encode(),
+			|| {
+				if self.depth == self.config.max_depth as usize {
+					Err(Error::<T>::MaxCallDepthReached)?
+				}
 
-		let transactor_kind = self.transactor_kind();
-		let caller = self.self_account.clone();
-		let dest = Contracts::<T>::contract_address(&caller, code_hash, salt);
+				let transactor_kind = self.transactor_kind();
+				let caller = self.self_account.clone();
+				let dest = Contracts::<T>::contract_address(&caller, code_hash, salt);
+				with_runtime(|r| r.set_self_account(dest.clone().encode()));
 
-		// TrieId has not been generated yet and storage is empty since contract is new.
-		//
-		// Generate it now.
-		let dest_trie_id = Storage::<T>::generate_trie_id(&dest);
+				// TrieId has not been generated yet and storage is empty since contract is new.
+				//
+				// Generate it now.
+				let dest_trie_id = Storage::<T>::generate_trie_id(&dest);
 
-		let output = self.with_nested_context(dest.clone(), dest_trie_id, |nested| {
-			Storage::<T>::place_contract(
-				&dest,
-				nested
-					.self_trie_id
-					.clone()
-					.expect("the nested context always has to have self_trie_id"),
-				code_hash.clone()
-			)?;
+				let output = self.with_nested_context(dest.clone(), dest_trie_id, |nested| {
+					Storage::<T>::place_contract(
+						&dest,
+						nested
+							.self_trie_id
+							.clone()
+							.expect("the nested context always has to have self_trie_id"),
+						code_hash.clone(),
+					)?;
 
-			// Send funds unconditionally here. If the `endowment` is below existential_deposit
-			// then error will be returned here.
-			transfer(
-				TransferCause::Instantiate,
-				transactor_kind,
-				&caller,
-				&dest,
-				endowment,
-				nested,
-			)?;
+					// Send funds unconditionally here. If the `endowment` is below existential_deposit
+					// then error will be returned here.
+					transfer(
+						TransferCause::Instantiate,
+						transactor_kind,
+						&caller,
+						&dest,
+						endowment,
+						nested,
+					)?;
 
-			let executable = nested.loader.load_init(&code_hash)
-				.map_err(|_| Error::<T>::CodeNotFound)?;
-			let output = nested.vm
-				.execute(
-					&executable,
-					nested.new_call_context(caller.clone(), endowment),
-					input_data,
-					gas_meter,
-				).map_err(|e| ExecError { error: e.error, origin: ErrorOrigin::Callee })?;
+					let executable = nested.loader.load_init(&code_hash)
+						.map_err(|_| Error::<T>::CodeNotFound)?;
+					let output = nested.vm
+						.execute(
+							&executable,
+							nested.new_call_context(caller.clone(), endowment),
+							input_data,
+							gas_meter,
+						).map_err(|e| ExecError { error: e.error, origin: ErrorOrigin::Callee })?;
 
-			// We need each contract that exists to be above the subsistence threshold
-			// in order to keep up the guarantuee that we always leave a tombstone behind
-			// with the exception of a contract that called `seal_terminate`.
-			if T::Currency::total_balance(&dest) < nested.config.subsistence_threshold() {
-				Err(Error::<T>::NewContractNotFunded)?
-			}
+					// We need each contract that exists to be above the subsistence threshold
+					// in order to keep up the guarantuee that we always leave a tombstone behind
+					// with the exception of a contract that called `seal_terminate`.
+					if T::Currency::total_balance(&dest) < nested.config.subsistence_threshold() {
+						Err(Error::<T>::NewContractNotFunded)?
+					}
 
-			// Deposit an instantiation event.
-			deposit_event::<T>(vec![], RawEvent::Instantiated(caller.clone(), dest.clone()));
+					// Deposit an instantiation event.
+					deposit_event::<T>(vec![], RawEvent::Instantiated(caller.clone(), dest.clone()));
 
-			Ok(output)
-		})?;
+					Ok(output)
+				})?;
 
-		Ok((dest, output))
+				Ok((dest, output))
+			})
 	}
 
 	fn new_call_context<'b>(
@@ -694,6 +717,10 @@ where
 
 	fn get_weight_price(&self, weight: Weight) -> BalanceOf<Self::T> {
 		T::WeightPrice::convert(weight)
+	}
+
+	fn get_depth(&self) -> usize {
+		self.ctx.depth
 	}
 }
 
