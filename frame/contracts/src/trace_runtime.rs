@@ -1,7 +1,7 @@
 use sp_std::fmt::{self, Formatter};
 use sp_core::crypto::AccountId32;
 use sp_std::cmp::min;
-use sp_sandbox::Error;
+use sp_sandbox::{Error, WasmiError};
 
 use crate::{env_trace::{EnvTrace, HexVec}, Gas, wasm::runtime::TrapReason};
 
@@ -21,8 +21,46 @@ impl fmt::Debug for EnvTraceList {
     }
 }
 
-#[derive(sp_core::RuntimeDebug)]
-struct NestedRuntime {
+struct WasmErrorWrapper(Error);
+
+impl fmt::Debug for WasmErrorWrapper {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		match &self.0 {
+			Error::WasmiExecution(err) => {
+				match err {
+					WasmiError::Trap(trap) => {
+						write!(f, "Error::WasmiExecution(Trap(Trap {{ kind: {:?} }}))\n", trap.kind())?;
+						write!(f, "\twasm backtrace: ")?;
+
+						for (index, trace) in trap.wasm_trace().iter().enumerate() {
+							if index == trap.wasm_trace().len() - 1{
+								write!(f, "\n\t╰─>")?;
+							} else {
+								write!(f, "\n\t|  ")?;
+							}
+							write!(f, "{}", trace)?;
+						}
+
+						if trap.wasm_trace().is_empty() {
+							write!(f, "[]")?;
+						}
+
+						write!(f, "\n")
+					},
+					_ => {
+						write!(f, "{:?}", self.0)
+					}
+				}
+			},
+			error => {
+				write!(f, "{:?}", error)
+			}
+		}
+	}
+}
+
+pub struct NestedRuntime {
+    depth: usize,
     caller: AccountId32,
     self_account: Option<AccountId32>,
     selector: Option<HexVec>,
@@ -31,17 +69,39 @@ struct NestedRuntime {
     gas_limit: Gas,
     gas_left: Gas,
     env_trace: EnvTraceList,
-    nest: Vec<NestedRuntimeWrapper>,
-}
-
-pub struct NestedRuntimeWrapper {
-    depth: usize,
-    wasm_error: Option<Error>,
+    wasm_error: Option<WasmErrorWrapper>,
     trap_reason: Option<TrapReason>,
-    inner: NestedRuntime,
+    nest: Vec<NestedRuntime>,
 }
 
-impl NestedRuntimeWrapper {
+fn print_option<T: fmt::Debug>(arg: &Option<T>) -> String {
+    if let Some(v) = arg {
+        format!("{:?}", v)
+    } else{
+        String::from("None")
+    }
+}
+
+impl fmt::Debug for NestedRuntime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		f.debug_struct(&format!("{}: NestedRuntime", &self.depth))
+			.field("caller", &self.caller)
+			.field("self_account", &format_args!("{}", print_option(&self.self_account)))
+			.field("selector", &format_args!("{}", print_option(&self.selector)))
+			.field("args", &format_args!("{}", print_option(&self.args)))
+			.field("value", &self.value)
+			.field("gas_limit", &self.gas_limit)
+			.field("gas_left", &self.gas_left)
+			.field("env_trace", &self.env_trace)
+			.field("trap_reason", &format_args!("{}", print_option(&self.trap_reason)))
+			.field("Wasm inner error", &format_args!("{}", print_option(&self.wasm_error)))
+			.field("nest", &self.nest)
+			.finish()
+
+    }
+}
+
+impl NestedRuntime {
     pub fn new(
         depth: usize,
         caller: AccountId32,
@@ -51,21 +111,19 @@ impl NestedRuntimeWrapper {
         value: u128,
         gas_limit: Gas,
     ) -> Self {
-        NestedRuntimeWrapper {
+        NestedRuntime {
             depth,
-            inner: NestedRuntime {
-                caller,
-                self_account,
-                selector,
-                args,
-                value,
-                gas_limit,
-                gas_left: gas_limit,
-                env_trace: EnvTraceList(Vec::new()),
-                nest: Vec::new(),
-            },
-            wasm_error: None,
-            trap_reason: None,
+			caller,
+			self_account,
+			selector,
+			args,
+			value,
+			gas_limit,
+			gas_left: gas_limit,
+			env_trace: EnvTraceList(Vec::new()),
+			nest: Vec::new(),
+			wasm_error: None,
+			trap_reason: None,
         }
     }
 
@@ -73,24 +131,24 @@ impl NestedRuntimeWrapper {
         self.depth == 1
     }
 
-    pub fn nested(&mut self, nest: NestedRuntimeWrapper) {
-        self.inner.nest.push(nest);
+    pub fn nested(&mut self, nest: NestedRuntime) {
+        self.nest.push(nest);
     }
 
-    pub fn nest_pop(&mut self) -> &mut NestedRuntimeWrapper {
-        self.inner.nest.last_mut().expect("Must not be empty after `nested`")
+    pub fn nest_pop(&mut self) -> &mut NestedRuntime {
+        self.nest.last_mut().expect("Must not be empty after `nested`")
     }
 
     pub fn set_gas_left(&mut self, left: Gas) {
-        self.inner.gas_left = left;
+        self.gas_left = left;
     }
 
     pub fn set_self_account(&mut self, self_account: Vec<u8>) {
-        self.inner.self_account = Some(unchecked_into_account_id32(self_account));
+        self.self_account = Some(unchecked_into_account_id32(self_account));
     }
 
     pub fn env_trace_push(&mut self, host_func: EnvTrace) {
-        let env_trace = &mut self.inner.env_trace;
+        let env_trace = &mut self.env_trace;
         env_trace.0.push(host_func);
     }
 
@@ -99,26 +157,11 @@ impl NestedRuntimeWrapper {
     }
 
     pub fn set_wasm_error(&mut self, wasm_error: Error) {
-        self.wasm_error = Some(wasm_error);
+        self.wasm_error = Some(WasmErrorWrapper(wasm_error));
     }
 }
 
-impl fmt::Debug for NestedRuntimeWrapper {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut arg = format!("{}: {:#?}", self.depth, self.inner);
-        if let Some(e)= &self.wasm_error {
-            let err_str = format!("\n{:?}", e);
-            arg += &err_str;
-        }
-        if let Some(trap) = &self.trap_reason {
-            let trap_str = format!("\n{:?}", trap);
-            arg += &trap_str;
-        }
-        f.write_str(&arg)
-    }
-}
-
-impl Drop for NestedRuntimeWrapper {
+impl Drop for NestedRuntime {
     fn drop(&mut self) {
         if self.depth == 1 {
             println! {"{:#?}\n", self};
@@ -126,16 +169,16 @@ impl Drop for NestedRuntimeWrapper {
     }
 }
 
-environmental::environmental!(runtime: NestedRuntimeWrapper);
+environmental::environmental!(runtime: NestedRuntime);
 
-pub fn set_and_run_with_runtime<F, R>(runtime: &mut NestedRuntimeWrapper, f: F) -> R
+pub fn set_and_run_with_runtime<F, R>(runtime: &mut NestedRuntime, f: F) -> R
     where
         F: FnOnce() -> R,
 {
     runtime::using(runtime, f)
 }
 
-pub fn with_runtime<F: FnOnce(&mut NestedRuntimeWrapper) -> R, R>(f: F) -> Option<R> {
+pub fn with_runtime<F: FnOnce(&mut NestedRuntime) -> R, R>(f: F) -> Option<R> {
     runtime::with(f)
 }
 
@@ -175,7 +218,7 @@ pub fn with_nested_runtime<F, R>(
         None
     };
 
-    let mut nest = NestedRuntimeWrapper::new(
+    let mut nest = NestedRuntime::new(
         depth,
         unchecked_into_account_id32(self_account),
         dest,

@@ -37,6 +37,7 @@ use sp_io::hashing::{
 	sha2_256,
 };
 use pallet_contracts_primitives::{ExecResult, ExecReturnValue, ReturnFlags, ExecError};
+use sp_std::fmt::{self, Formatter};
 
 /// Every error that can be returned to a contract when it calls any of the host functions.
 #[repr(u32)]
@@ -90,7 +91,7 @@ impl From<ExecReturnValue> for ReturnCode {
 }
 
 /// The data passed through when a contract uses `seal_return`.
-#[derive(RuntimeDebug, Clone)]
+#[derive(Clone)]
 pub struct ReturnData {
 	/// The flags as passed through by the contract. They are still unchecked and
 	/// will later be parsed into a `ReturnFlags` bitflags struct.
@@ -99,13 +100,22 @@ pub struct ReturnData {
 	data: Vec<u8>,
 }
 
+impl fmt::Debug for ReturnData {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		f.debug_struct("ReturnData")
+			.field("flags", &self.flags)
+			.field("data", &hex::encode(&self.data))
+			.finish()
+	}
+}
+
 /// Enumerates all possible reasons why a trap was generated.
 ///
 /// This is either used to supply the caller with more information about why an error
 /// occurred (the SupervisorError variant).
 /// The other case is where the trap does not constitute an error but rather was invoked
 /// as a quick way to terminate the application (all other variants).
-#[derive(RuntimeDebug, Clone)]
+#[derive(Clone, RuntimeDebug)]
 pub enum TrapReason {
 	/// The supervisor trapped the contract because of an error condition occurred during
 	/// execution in privileged code.
