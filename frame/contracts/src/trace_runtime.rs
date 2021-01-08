@@ -84,19 +84,24 @@ fn print_option<T: fmt::Debug>(arg: &Option<T>) -> String {
 
 impl fmt::Debug for NestedRuntime {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		f.debug_struct(&format!("{}: NestedRuntime", &self.depth))
-			.field("caller", &self.caller)
+		let mut debug_struct = f.debug_struct(&format!("{}: NestedRuntime", &self.depth));
+		debug_struct.field("caller", &self.caller)
 			.field("self_account", &format_args!("{}", print_option(&self.self_account)))
 			.field("selector", &format_args!("{}", print_option(&self.selector)))
 			.field("args", &format_args!("{}", print_option(&self.args)))
 			.field("value", &self.value)
 			.field("gas_limit", &self.gas_limit)
 			.field("gas_left", &self.gas_left)
-			.field("env_trace", &self.env_trace)
-			.field("trap_reason", &format_args!("{}", print_option(&self.trap_reason)))
-			.field("Wasm inner error", &format_args!("{}", print_option(&self.wasm_error)))
-			.field("nest", &self.nest)
-			.finish()
+			.field("env_trace", &self.env_trace);
+
+		if let Some(trap) = &self.trap_reason {
+			debug_struct.field("trap_reason", &format_args!("{:?}", trap));
+		} else if let Some(wasm_err) = &self.wasm_error {
+			debug_struct.field("wasm_error", &format_args!("{:?}", wasm_err));
+		}
+
+		debug_struct.field("nest", &self.nest);
+		debug_struct.finish()
 
     }
 }
