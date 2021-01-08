@@ -280,16 +280,16 @@ where
 					Err(Error::<T>::MaxCallDepthReached)?
 				}
 
-		// This charges the rent and denies access to a contract that is in need of
-		// eviction by returning `None`. We cannot evict eagerly here because those
-		// changes would be rolled back in case this contract is called by another
-		// contract.
-		// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
-		let contract = if let Ok(Some(ContractInfo::Alive(info))) = Rent::<T>::charge(&dest) {
-			info
-		} else {
-			Err(Error::<T>::NotCallable)?
-		};
+				// This charges the rent and denies access to a contract that is in need of
+				// eviction by returning `None`. We cannot evict eagerly here because those
+				// changes would be rolled back in case this contract is called by another
+				// contract.
+				// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
+				let contract = if let Ok(Some(ContractInfo::Alive(info))) = Rent::<T>::charge(&dest) {
+					info
+				} else {
+					Err(Error::<T>::NotCallable)?
+				};
 
 				let transactor_kind = self.transactor_kind();
 				let caller = self.self_account.clone();

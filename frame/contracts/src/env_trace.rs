@@ -7,6 +7,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::trace_runtime::with_runtime;
 
+/// The vector that can be printed as "0x1234"
 #[derive(Clone)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct HexVec(Vec<u8>);

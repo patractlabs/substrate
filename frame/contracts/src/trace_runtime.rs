@@ -5,6 +5,7 @@ use sp_sandbox::{Error, WasmiError};
 
 use crate::{env_trace::{EnvTrace, HexVec}, Gas, wasm::runtime::TrapReason};
 
+/// The host function call stack.
 struct EnvTraceList(Vec<EnvTrace>);
 
 impl fmt::Debug for EnvTraceList {
@@ -21,6 +22,7 @@ impl fmt::Debug for EnvTraceList {
     }
 }
 
+/// Wrap sandbox::Error for fmt::Debug.
 struct WasmErrorWrapper(Error);
 
 impl fmt::Debug for WasmErrorWrapper {
@@ -59,21 +61,35 @@ impl fmt::Debug for WasmErrorWrapper {
 	}
 }
 
+/// Record the contract execution context.
 pub struct NestedRuntime {
+	/// Current depth
     depth: usize,
+	/// Who call the current contract
     caller: AccountId32,
+	/// The account of the current contract
     self_account: Option<AccountId32>,
+	/// The input selector
     selector: Option<HexVec>,
+	/// The input arguments
     args: Option<HexVec>,
+	/// The value in call or the endowment in instantiate
     value: u128,
+	/// The gas limit when this contract is called
     gas_limit: Gas,
+	/// The gas left when this contract return
     gas_left: Gas,
+	/// The host function call stack
     env_trace: EnvTraceList,
+	/// The error in wasm
     wasm_error: Option<WasmErrorWrapper>,
+	/// The trap in host function execution
     trap_reason: Option<TrapReason>,
+	/// Nested contract execution context
     nest: Vec<NestedRuntime>,
 }
 
+/// Print `Option<T>`, make `Some` transparent.
 fn print_option<T: fmt::Debug>(arg: &Option<T>) -> String {
     if let Some(v) = arg {
         format!("{:?}", v)
@@ -187,6 +203,7 @@ pub fn with_runtime<F: FnOnce(&mut NestedRuntime) -> R, R>(f: F) -> Option<R> {
     runtime::with(f)
 }
 
+/// Unchecked convert the account to `AccountId32`.
 fn unchecked_into_account_id32(raw_vec: Vec<u8>)-> AccountId32{
     let mut account = [0u8;32];
     let border = min(raw_vec.len(), 32);
@@ -197,6 +214,7 @@ fn unchecked_into_account_id32(raw_vec: Vec<u8>)-> AccountId32{
     AccountId32::from(account)
 }
 
+/// Execute the given closure within a nested execution context.
 pub fn with_nested_runtime<F, R>(
     input_data: Vec<u8>,
     dest: Option<Vec<u8>>,
