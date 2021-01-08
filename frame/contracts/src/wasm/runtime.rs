@@ -390,8 +390,8 @@ where
 			// Any other kind of a trap should result in a failure.
 			Err(sp_sandbox::Error::Execution) | Err(sp_sandbox::Error::OutOfBounds) =>
 				Err(Error::<E::T>::ContractTrapped)?,
-            Err(sp_sandbox::Error::WasmiExecution(_)) =>
-                Err(Error::<E::T>::ContractTrapped)?
+			Err(sp_sandbox::Error::WasmiExecution(_)) =>
+				Err(Error::<E::T>::ContractTrapped)?
 		}
 	}
 
@@ -639,7 +639,7 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 		ctx.charge_gas(RuntimeToken::MeteringBlock(amount))?;
 
-	    protege.set_amount(Some(amount));
+		protege.set_amount(Some(amount));
 		Ok(())
 	},
 
@@ -668,10 +668,10 @@ define_env!(Env, <E: Ext>,
 		}
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
-	    protege.set_key(Some(key.to_vec().into()));
+		protege.set_key(Some(key.to_vec().into()));
 
 		let value = ctx.read_sandbox_memory(value_ptr, value_len)?;
-	    protege.set_value(Some(value.clone().into()));
+		protege.set_value(Some(value.clone().into()));
 
 		ctx.ext.set_storage(key, Some(value));
 		Ok(())
@@ -689,7 +689,7 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeToken::ClearStorage)?;
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
-	    protege.set_key(Some(key.to_vec().into()));
+		protege.set_key(Some(key.to_vec().into()));
 
 		ctx.ext.set_storage(key, None);
 		Ok(())
@@ -714,13 +714,13 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeToken::GetStorageBase)?;
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
-	    protege.set_key(Some(key.to_vec().into()));
+		protege.set_key(Some(key.to_vec().into()));
 
 		if let Some(value) = ctx.ext.get_storage(&key) {
 			ctx.write_sandbox_output(out_ptr, out_len_ptr, &value, false, |len| {
 				Some(RuntimeToken::GetStorageCopyOut(len))
 			})?;
-	        protege.set_output(Some(value.into()));
+			protege.set_output(Some(value.into()));
 			Ok(ReturnCode::Success)
 		} else {
 			Ok(ReturnCode::KeyNotFound)
@@ -755,11 +755,11 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeToken::Transfer)?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(account_ptr, account_len)?;
-	    protege.set_account(Some(callee.encode().into()));
+		protege.set_account(Some(callee.encode().into()));
 
 		let value: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(value_ptr, value_len)?;
-	    protege.set_value(Some(value.saturated_into()));
+		protege.set_value(Some(value.saturated_into()));
 
 		let result = ctx.ext.transfer(&callee, value);
 		match result {
@@ -820,7 +820,7 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeToken::CallBase(input_data_len))?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(callee_ptr, callee_len)?;
-	    protege.set_callee(Some(callee.encode().into()));
+		protege.set_callee(Some(callee.encode().into()));
 
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr, value_len)?;
 		protege.set_value(Some(value.saturated_into()));
@@ -971,7 +971,7 @@ define_env!(Env, <E: Ext>,
 				Some(RuntimeToken::InstantiateCopyOut(len))
 			})?;
 			protege.set_output(Some(output.data.clone().into()));
-	        protege.set_address(Some(address.encode().into()));
+			protege.set_address(Some(address.encode().into()));
 		}
 		Ok(Runtime::<E>::exec_into_return_code(instantiate_outcome.map(|(_id, retval)| retval))?)
 	},
@@ -1015,7 +1015,7 @@ define_env!(Env, <E: Ext>,
 
 		ctx.charge_gas(RuntimeToken::InputBase)?;
 		if let Some(input) = ctx.input_data.take() {
-	    	protege.set_buf(Some(input.clone().into()));
+			protege.set_buf(Some(input.clone().into()));
 			ctx.write_sandbox_output(buf_ptr, buf_len_ptr, &input, false, |len| {
 				Some(RuntimeToken::InputCopyOut(len))
 			})?;
@@ -1199,7 +1199,7 @@ define_env!(Env, <E: Ext>,
 		}
 		let subject_buf = ctx.read_sandbox_memory(subject_ptr, subject_len)?;
 		protege.set_subject(Some(subject_buf.clone().into()));
-	    protege.set_out(Some(ctx.ext.random(&subject_buf).encode().clone().into()));
+		protege.set_out(Some(ctx.ext.random(&subject_buf).encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.random(&subject_buf).encode(), false, already_charged
@@ -1501,7 +1501,7 @@ define_env!(Env, <E: Ext>,
 		let (input, out) =
 			ctx.compute_hash_on_intermediate_buffer(sha2_256, input_ptr, input_len, output_ptr)?;
 		protege.set_input(Some(input.into()));
-	    protege.set_out(Some(out.encode().into()));
+		protege.set_out(Some(out.encode().into()));
 
 		Ok(())
 	},
@@ -1534,9 +1534,9 @@ define_env!(Env, <E: Ext>,
 		let (input, out) =
 			ctx.compute_hash_on_intermediate_buffer(keccak_256, input_ptr, input_len, output_ptr)?;
 		protege.set_input(Some(input.into()));
-	    protege.set_out(Some(out.encode().into()));
+		protege.set_out(Some(out.encode().into()));
 
-	    Ok(())
+		Ok(())
 	},
 
 	// Computes the BLAKE2 256-bit hash on the given input buffer.
@@ -1567,9 +1567,9 @@ define_env!(Env, <E: Ext>,
 		let (input, out) =
 			ctx.compute_hash_on_intermediate_buffer(blake2_256, input_ptr, input_len, output_ptr)?;
 		protege.set_input(Some(input.into()));
-	    protege.set_out(Some(out.encode().into()));
+		protege.set_out(Some(out.encode().into()));
 
-	    Ok(())
+		Ok(())
 	},
 
 	// Computes the BLAKE2 128-bit hash on the given input buffer.
@@ -1600,9 +1600,9 @@ define_env!(Env, <E: Ext>,
 		let (input, out) =
 			ctx.compute_hash_on_intermediate_buffer(blake2_128, input_ptr, input_len, output_ptr)?;
 		protege.set_input(Some(input.into()));
-	    protege.set_out(Some(out.encode().into()));
+		protege.set_out(Some(out.encode().into()));
 
-	    Ok(())
+		Ok(())
 	},
 
 	// Call into the chain extension provided by the chain if any.
