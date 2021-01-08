@@ -1399,6 +1399,7 @@ define_env!(Env, <E: Ext>,
 		protege.set_data(Some(event_data.clone().into()));
 
 		ctx.ext.deposit_event(topics, event_data);
+
 		Ok(())
 	},
 
