@@ -65,6 +65,8 @@ impl fmt::Debug for WasmErrorWrapper {
 pub struct NestedRuntime {
 	/// Current depth
     depth: usize,
+	/// Whether the current contract execute success
+	success: bool,
 	/// Who call the current contract
     caller: AccountId32,
 	/// The account of the current contract
@@ -101,7 +103,8 @@ fn print_option<T: fmt::Debug>(arg: &Option<T>) -> String {
 impl fmt::Debug for NestedRuntime {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
 		let mut debug_struct = f.debug_struct(&format!("{}: NestedRuntime", &self.depth));
-		debug_struct.field("caller", &self.caller)
+		debug_struct.field("is_success", &self.success)
+			.field("caller", &self.caller)
 			.field("self_account", &format_args!("{}", print_option(&self.self_account)))
 			.field("selector", &format_args!("{}", print_option(&self.selector)))
 			.field("args", &format_args!("{}", print_option(&self.args)))
@@ -112,8 +115,12 @@ impl fmt::Debug for NestedRuntime {
 
 		if let Some(trap) = &self.trap_reason {
 			debug_struct.field("trap_reason", &format_args!("{:?}", trap));
-		} else if let Some(wasm_err) = &self.wasm_error {
-			debug_struct.field("wasm_error", &format_args!("{:?}", wasm_err));
+		}
+
+		if !self.success {
+			if let Some(wasm_err) = &self.wasm_error {
+				debug_struct.field("wasm_error", &format_args!("{:?}", wasm_err));
+			}
 		}
 
 		debug_struct.field("nest", &self.nest);
@@ -140,6 +147,7 @@ impl NestedRuntime {
 			args,
 			value,
 			gas_limit,
+			success: true,
 			gas_left: gas_limit,
 			env_trace: EnvTraceList(Vec::new()),
 			nest: Vec::new(),
@@ -180,6 +188,10 @@ impl NestedRuntime {
     pub fn set_wasm_error(&mut self, wasm_error: Error) {
         self.wasm_error = Some(WasmErrorWrapper(wasm_error));
     }
+
+	pub fn set_success(&mut self, is_success: bool) {
+		self.success = is_success;
+	}
 }
 
 impl Drop for NestedRuntime {

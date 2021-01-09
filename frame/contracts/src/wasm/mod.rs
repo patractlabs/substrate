@@ -160,6 +160,10 @@ where
 		if let Err(e) = result {
 			with_runtime(|r| r.set_wasm_error(e));
 		}
+		if ext_result.is_err() {
+			with_runtime(|r| r.set_success(false));
+		}
+
 		ext_result
 	}
 }
