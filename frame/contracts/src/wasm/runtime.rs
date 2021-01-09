@@ -38,6 +38,7 @@ use sp_io::hashing::{
 };
 use pallet_contracts_primitives::{ExecResult, ExecReturnValue, ReturnFlags, ExecError};
 use sp_std::fmt::{self, Formatter};
+use crate::trace_runtime::with_runtime;
 
 /// Every error that can be returned to a contract when it calls any of the host functions.
 #[repr(u32)]
@@ -376,7 +377,8 @@ where
 		// Check the exact type of the error.
 		match sandbox_result {
 			// No traps were generated. Proceed normally.
-			Ok(_) => {
+			Ok(value) => {
+				with_runtime(|r| r.set_sandbox_result(value.clone()));
 				Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: Vec::new() })
 			}
 			// `Error::Module` is returned only if instantiation or linking failed (i.e.

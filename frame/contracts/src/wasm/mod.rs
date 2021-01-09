@@ -36,12 +36,12 @@ pub mod runtime;
 
 use self::code_cache::load as load_code;
 use pallet_contracts_primitives::ExecResult;
+use crate::trace_runtime::{with_runtime, into_exec_result_trace};
 
 pub use self::code_cache::save as save_code;
 #[cfg(feature = "runtime-benchmarks")]
 pub use self::code_cache::save_raw as save_code_raw;
 pub use self::runtime::{ReturnCode, Runtime, RuntimeToken};
-use crate::trace_runtime::with_runtime;
 
 /// A prepared wasm module ready for execution.
 #[derive(Clone, Encode, Decode)]
@@ -157,12 +157,15 @@ where
 			.and_then(|mut instance| instance.invoke(exec.entrypoint_name, &[], &mut runtime));
 		let ext_result = runtime.to_execution_result(&result);
 		with_runtime(|r| r.set_gas_left(gas_meter.gas_left()));
-		if let Err(e) = result {
-			with_runtime(|r| r.set_wasm_error(e));
-		}
-		if ext_result.is_err() {
-			with_runtime(|r| r.set_success(false));
-		}
+
+		let ext_result_record = into_exec_result_trace(&ext_result);
+
+		with_runtime(|r| {
+			r.set_ext_result(ext_result_record);
+			if let Err(e) = result {
+				r.set_wasm_error(e);
+			}
+		});
 
 		ext_result
 	}
