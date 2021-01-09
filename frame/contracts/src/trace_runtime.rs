@@ -2,7 +2,8 @@ use sp_std::fmt::{self, Formatter};
 use sp_core::crypto::AccountId32;
 use sp_std::cmp::min;
 use sp_sandbox::{Error, WasmiError, ReturnValue};
-use pallet_contracts_primitives::{ExecResult, ExecReturnValue, ReturnFlags, ExecError, ErrorOrigin};
+use pallet_contracts_primitives::{ExecResult, ExecError, ErrorOrigin};
+use codec::{Decode, Encode};
 
 use crate::{env_trace::{EnvTrace, HexVec}, Gas, wasm::runtime::TrapReason};
 
@@ -62,13 +63,34 @@ impl fmt::Debug for WasmErrorWrapper {
 	}
 }
 
-pub type ExecResultTrace = ExecResult;
+#[derive(PartialEq, Eq, Encode, Decode)]
+pub struct ExecReturnValueTrace {
+	pub flags: u32,
+	pub data: Vec<u8>,
+}
+
+impl fmt::Debug for ExecReturnValueTrace {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		f.debug_struct("ExecReturnValue")
+			.field("flags", &self.flags)
+			.field("data", &format_args!("{}", &hex::encode(&self.data)))
+			.finish()
+	}
+}
+
+pub type ExecResultTrace = Result<ExecReturnValueTrace, ExecError>;
 
 pub fn into_exec_result_trace(ext_result: &ExecResult) -> ExecResultTrace {
 	match ext_result {
 		Ok(value) => {
-			Ok(ExecReturnValue {
-				flags: value.flags.clone(),
+			Ok(ExecReturnValueTrace {
+				flags: {
+					if value.is_success() {
+						0
+					} else {
+						1
+					}
+				},
 				data: value.data.clone()
 			})
 		},
@@ -91,7 +113,7 @@ pub struct NestedRuntime {
 	/// Current depth
     depth: usize,
 	/// The current contract execute result
-	ext_result: ExecResult,
+	ext_result: ExecResultTrace,
 	/// The value in sandbox successful result
 	sandbox_result_ok: Option<ReturnValue>,
 	/// Who call the current contract
@@ -130,10 +152,12 @@ fn print_option<T: fmt::Debug>(arg: &Option<T>) -> String {
 impl fmt::Debug for NestedRuntime {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
 		let mut debug_struct = f.debug_struct(&format!("{}: NestedRuntime", &self.depth));
-		debug_struct.field(
-			"ext_result",
-			&format_args!("{}", { if self.ext_result.is_ok() { "success" } else { "failed" } })
-		);
+
+		if let Ok(value) = &self.ext_result {
+			debug_struct.field("ext_result", &format_args!("[success] {:?}", value));
+		} else if let Err(e) = &self.ext_result{
+			debug_struct.field("ext_result", &format_args!("[failed] {:?}", e));
+		}
 
 		debug_struct.field("caller", &self.caller)
 			.field("self_account", &format_args!("{}", print_option(&self.self_account)))
@@ -177,8 +201,8 @@ impl NestedRuntime {
         NestedRuntime {
             depth,
 			ext_result: Ok(
-				ExecReturnValue {
-					flags: ReturnFlags::empty(),
+				ExecReturnValueTrace {
+					flags: 0,
 					data: Vec::new(),
 			}),
 			sandbox_result_ok: None,
@@ -229,7 +253,7 @@ impl NestedRuntime {
         self.wasm_error = Some(WasmErrorWrapper(wasm_error));
     }
 
-	pub fn set_ext_result(&mut self, ext_result: ExecResult) {
+	pub fn set_ext_result(&mut self, ext_result: ExecResultTrace) {
 		self.ext_result = ext_result;
 	}
 

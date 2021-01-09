@@ -106,7 +106,7 @@ impl fmt::Debug for ReturnData {
 	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
 		f.debug_struct("ReturnData")
 			.field("flags", &self.flags)
-			.field("data", &hex::encode(&self.data))
+			.field("data", &format_args!("{}", &hex::encode(&self.data)))
 			.finish()
 	}
 }
