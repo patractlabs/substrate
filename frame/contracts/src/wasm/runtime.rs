@@ -42,6 +42,7 @@ use crate::trace_runtime::with_runtime;
 
 /// Every error that can be returned to a contract when it calls any of the host functions.
 #[repr(u32)]
+#[derive(Clone, RuntimeDebug)]
 pub enum ReturnCode {
 	/// API call successful.
 	Success = 0,
@@ -861,7 +862,12 @@ define_env!(Env, <E: Ext>,
 			})?;
 			protege.set_output(Some(output.data.clone().into()));
 		}
-		Ok(Runtime::<E>::exec_into_return_code(call_outcome)?)
+
+		let return_code = Runtime::<E>::exec_into_return_code(call_outcome);
+		if let Ok(code) = &return_code{
+			protege.set_result(Some(code.clone()));
+		}
+		Ok(return_code?)
 	},
 
 	// Instantiate a contract with the specified code hash.
@@ -975,7 +981,12 @@ define_env!(Env, <E: Ext>,
 			protege.set_output(Some(output.data.clone().into()));
 			protege.set_address(Some(address.encode().into()));
 		}
-		Ok(Runtime::<E>::exec_into_return_code(instantiate_outcome.map(|(_id, retval)| retval))?)
+
+		let return_code = Runtime::<E>::exec_into_return_code(instantiate_outcome.map(|(_id, retval)| retval));
+		if let Ok(code) = &return_code{
+			protege.set_result(Some(code.clone()));
+		}
+		Ok(return_code?)
 	},
 
 	// Remove the calling account and transfer remaining balance.

@@ -6,6 +6,7 @@ use pallet_contracts_proc_macro::{HostDebug, Wrap};
 use serde::{Serialize, Deserialize};
 
 use crate::trace_runtime::with_runtime;
+use crate::wasm::ReturnCode;
 
 /// The vector that can be printed as "0x1234"
 #[derive(Clone)]
@@ -108,6 +109,8 @@ pub struct SealCall {
     input: Option<HexVec>,
     #[set]
     output: Option<HexVec>,
+    #[set]
+    result: Option<ReturnCode>,
 }
 
 impl SealCall {
@@ -135,6 +138,8 @@ pub struct SealInstantiate {
     output: Option<HexVec>,
     #[set]
     salt: Option<HexVec>,
+    #[set]
+    result: Option<ReturnCode>,
 }
 
 impl SealInstantiate {
