@@ -38,9 +38,11 @@ use sp_io::hashing::{
 };
 use pallet_contracts_primitives::{ExecResult, ExecReturnValue, ReturnFlags, ExecError};
 use sp_std::fmt::{self, Formatter};
+use crate::trace_runtime::with_runtime;
 
 /// Every error that can be returned to a contract when it calls any of the host functions.
 #[repr(u32)]
+#[derive(Clone, RuntimeDebug)]
 pub enum ReturnCode {
 	/// API call successful.
 	Success = 0,
@@ -104,7 +106,7 @@ impl fmt::Debug for ReturnData {
 	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
 		f.debug_struct("ReturnData")
 			.field("flags", &self.flags)
-			.field("data", &hex::encode(&self.data))
+			.field("data", &format_args!("{}", &hex::encode(&self.data)))
 			.finish()
 	}
 }
@@ -376,7 +378,8 @@ where
 		// Check the exact type of the error.
 		match sandbox_result {
 			// No traps were generated. Proceed normally.
-			Ok(_) => {
+			Ok(value) => {
+				with_runtime(|r| r.set_sandbox_result(value.clone()));
 				Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: Vec::new() })
 			}
 			// `Error::Module` is returned only if instantiation or linking failed (i.e.
@@ -859,7 +862,12 @@ define_env!(Env, <E: Ext>,
 			})?;
 			protege.set_output(Some(output.data.clone().into()));
 		}
-		Ok(Runtime::<E>::exec_into_return_code(call_outcome)?)
+
+		let return_code = Runtime::<E>::exec_into_return_code(call_outcome);
+		if let Ok(code) = &return_code{
+			protege.set_result(Some(code.clone()));
+		}
+		Ok(return_code?)
 	},
 
 	// Instantiate a contract with the specified code hash.
@@ -973,7 +981,12 @@ define_env!(Env, <E: Ext>,
 			protege.set_output(Some(output.data.clone().into()));
 			protege.set_address(Some(address.encode().into()));
 		}
-		Ok(Runtime::<E>::exec_into_return_code(instantiate_outcome.map(|(_id, retval)| retval))?)
+
+		let return_code = Runtime::<E>::exec_into_return_code(instantiate_outcome.map(|(_id, retval)| retval));
+		if let Ok(code) = &return_code{
+			protege.set_result(Some(code.clone()));
+		}
+		Ok(return_code?)
 	},
 
 	// Remove the calling account and transfer remaining balance.
