@@ -113,7 +113,7 @@ impl EntryPoint {
 				])
 			},
 		})
-			.map(|results| 
+			.map(|results|
 				// the signature is checked to have i64 return type
 				results[0].unwrap_i64() as u64
 			)

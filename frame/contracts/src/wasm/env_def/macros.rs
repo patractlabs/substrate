@@ -62,6 +62,24 @@ macro_rules! gen_signature_dispatch {
 	};
 }
 
+#[macro_export]
+macro_rules! gen_signature_ext {
+    (
+		$needle_name:ident ;
+		$name:ident
+		    ( $ctx:ident $( , $names:ident : $params:ty )* ) $( -> $returns:ty )* , $($rest:tt)* ) => {{
+		if stringify!($name).as_bytes() == $needle_name {
+			let signature = gen_signature!( ( $( $params ),* ) $( -> $returns )* );
+			return Some(signature);
+		} else {
+			gen_signature_ext!($needle_name ; $($rest)*);
+		}
+	        }};
+	( $needle_name:ident ; ) => {{
+        return None;
+	}};
+}
+
 /// Unmarshall arguments and then execute `body` expression and return its result.
 macro_rules! unmarshall_then_body {
 	( $body:tt, $ctx:ident, $args_iter:ident, $( $names:ident : $params:ty ),* ) => ({
@@ -166,7 +184,8 @@ macro_rules! register_func {
 					< E: $seal_ty > $name ( $ctx $(, $names : $params )* ) $( -> $returns )* => $body
 				);
 				$name::<E>
-			}
+			},
+            gen_signature!( ( $( $params ),* ) $( -> $returns )* )
 		);
 		register_func!( $reg_cb, < E: $seal_ty > ; $($rest)* );
 	};
@@ -194,13 +213,19 @@ macro_rules! define_env {
 			}
 		}
 
+        impl $crate::wasm::env_def::FunctionSignature for $init_name {
+            fn sig(name: &[u8]) -> Option<parity_wasm::elements::FunctionType> {
+                gen_signature_ext!( name ; $( $name ( $ctx $(, $names : $params )* ) $( -> $returns )* , )* );
+            }
+        }
+
 		impl<E: Ext> $crate::wasm::env_def::FunctionImplProvider<E> for $init_name
 		where
 			<E::T as frame_system::Config>::AccountId:
 				sp_core::crypto::UncheckedFrom<<E::T as frame_system::Config>::Hash> +
 					AsRef<[u8]>
 		{
-			fn impls<F: FnMut(&[u8], $crate::wasm::env_def::HostFunc<E>)>(f: &mut F) {
+			fn impls<F: FnMut(&[u8], $crate::wasm::env_def::HostFunc<E>, parity_wasm::elements::FunctionType)>(f: &mut F) {
 				register_func!(f, < E: $seal_ty > ; $( $name ( $ctx $( , $names : $params )* ) $( -> $returns)* => $body )* );
 			}
 		}

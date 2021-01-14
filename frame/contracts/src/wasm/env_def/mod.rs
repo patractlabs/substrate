@@ -72,8 +72,12 @@ pub(crate) type HostFunc<E> =
 		&[sp_sandbox::Value]
 	) -> Result<sp_sandbox::ReturnValue, sp_sandbox::HostError>;
 
+pub(crate) trait FunctionSignature {
+    fn sig(name: &[u8]) -> Option<parity_wasm::elements::FunctionType>;
+}
+
 pub(crate) trait FunctionImplProvider<E: Ext> {
-	fn impls<F: FnMut(&[u8], HostFunc<E>)>(f: &mut F);
+	fn impls<F: FnMut(&[u8], HostFunc<E>, parity_wasm::elements::FunctionType)>(f: &mut F);
 }
 
 /// This trait can be used to check whether the host environment can satisfy
