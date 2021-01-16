@@ -1,7 +1,7 @@
 use sp_std::fmt::{self, Formatter};
 use sp_core::crypto::AccountId32;
 use sp_std::cmp::min;
-use sp_sandbox::{Error, WasmiError, ReturnValue};
+use sp_sandbox::{Error, ReturnValue};
 use pallet_contracts_primitives::{ExecResult, ExecError, ErrorOrigin};
 use codec::{Decode, Encode};
 
@@ -22,45 +22,6 @@ impl fmt::Debug for EnvTraceList {
             }))
             .finish()
     }
-}
-
-/// Wrap sandbox::Error for fmt::Debug.
-struct WasmErrorWrapper(Error);
-
-impl fmt::Debug for WasmErrorWrapper {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		match &self.0 {
-			Error::WasmiExecution(err) => {
-				match err {
-					WasmiError::Trap(trap) => {
-						write!(f, "Error::WasmiExecution(Trap(Trap {{ kind: {:?} }}))\n", trap.kind())?;
-						write!(f, "\twasm backtrace: ")?;
-
-						for (index, trace) in trap.wasm_trace().iter().enumerate() {
-							if index == trap.wasm_trace().len() - 1{
-								write!(f, "\n\t╰─>")?;
-							} else {
-								write!(f, "\n\t|  ")?;
-							}
-							write!(f, "{}", trace)?;
-						}
-
-						if trap.wasm_trace().is_empty() {
-							write!(f, "[]")?;
-						}
-
-						write!(f, "\n")
-					},
-					_ => {
-						write!(f, "{:?}", self.0)
-					}
-				}
-			},
-			error => {
-				write!(f, "{:?}", error)
-			}
-		}
-	}
 }
 
 #[derive(PartialEq, Eq, Encode, Decode)]
@@ -133,7 +94,7 @@ pub struct NestedRuntime {
 	/// The host function call stack
     env_trace: EnvTraceList,
 	/// The error in wasm
-    wasm_error: Option<WasmErrorWrapper>,
+    wasm_error: Option<Error>,
 	/// The trap in host function execution
     trap_reason: Option<TrapReason>,
 	/// Nested contract execution context
@@ -250,7 +211,7 @@ impl NestedRuntime {
     }
 
     pub fn set_wasm_error(&mut self, wasm_error: Error) {
-        self.wasm_error = Some(WasmErrorWrapper(wasm_error));
+        self.wasm_error = Some(wasm_error);
     }
 
 	pub fn set_ext_result(&mut self, ext_result: ExecResultTrace) {
