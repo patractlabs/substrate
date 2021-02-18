@@ -17,19 +17,23 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{
-	config::{ProtocolId, Role}, light_client_handler, peer_info, request_responses,
+	config::ProtocolId,
+	bitswap::Bitswap,
 	discovery::{DiscoveryBehaviour, DiscoveryConfig, DiscoveryOut},
 	protocol::{message::Roles, CustomMessageOutcome, NotificationsSink, Protocol},
+	peer_info, request_responses, light_client_requests,
 	ObservedRole, DhtEvent, ExHashT,
 };
 
 use bytes::Bytes;
-use futures::channel::oneshot;
+use futures::{channel::oneshot, stream::StreamExt};
 use libp2p::NetworkBehaviour;
 use libp2p::core::{Multiaddr, PeerId, PublicKey};
 use libp2p::identify::IdentifyInfo;
 use libp2p::kad::record;
-use libp2p::swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess, PollParameters};
+use libp2p::swarm::{
+	NetworkBehaviourAction, NetworkBehaviourEventProcess, PollParameters, toggle::Toggle
+};
 use log::debug;
 use prost::Message;
 use sp_consensus::{BlockOrigin, import_queue::{IncomingBlock, Origin}};
@@ -44,6 +48,7 @@ use std::{
 
 pub use crate::request_responses::{
 	ResponseFailure, InboundFailure, RequestFailure, OutboundFailure, RequestId,
+	IfDisconnected
 };
 
 /// General behaviour of the network. Combines all protocols together.
@@ -57,18 +62,18 @@ pub struct Behaviour<B: BlockT, H: ExHashT> {
 	peer_info: peer_info::PeerInfoBehaviour,
 	/// Discovers nodes of the network.
 	discovery: DiscoveryBehaviour,
+	/// Bitswap server for blockchain data.
+	bitswap: Toggle<Bitswap<B>>,
 	/// Generic request-reponse protocols.
 	request_responses: request_responses::RequestResponsesBehaviour,
-	/// Light client request handling.
-	light_client_handler: light_client_handler::LightClientHandler<B>,
 
 	/// Queue of events to produce for the outside.
 	#[behaviour(ignore)]
 	events: VecDeque<BehaviourOut<B>>,
 
-	/// Role of our local node, as originally passed from the configuration.
+	/// Light client request handling.
 	#[behaviour(ignore)]
-	role: Role,
+	light_client_request_sender: light_client_requests::sender::LightClientRequestSender<B>,
 
 	/// Protocol name used to send out block requests via
 	/// [`request_responses::RequestResponsesBehaviour`].
@@ -171,13 +176,13 @@ impl<B: BlockT, H: ExHashT> Behaviour<B, H> {
 	/// Builds a new `Behaviour`.
 	pub fn new(
 		substrate: Protocol<B, H>,
-		role: Role,
 		user_agent: String,
 		local_public_key: PublicKey,
-		light_client_handler: light_client_handler::LightClientHandler<B>,
+		light_client_request_sender: light_client_requests::sender::LightClientRequestSender<B>,
 		disco_config: DiscoveryConfig,
-		// Block request protocol config.
 		block_request_protocol_config: request_responses::ProtocolConfig,
+		bitswap: Option<Bitswap<B>>,
+		light_client_request_protocol_config: request_responses::ProtocolConfig,
 		// All remaining request protocol configs.
 		mut request_response_protocols: Vec<request_responses::ProtocolConfig>,
 	) -> Result<Self, request_responses::RegisterError> {
@@ -185,15 +190,17 @@ impl<B: BlockT, H: ExHashT> Behaviour<B, H> {
 		let block_request_protocol_name = block_request_protocol_config.name.to_string();
 		request_response_protocols.push(block_request_protocol_config);
 
+		request_response_protocols.push(light_client_request_protocol_config);
+
 		Ok(Behaviour {
 			substrate,
 			peer_info: peer_info::PeerInfoBehaviour::new(user_agent, local_public_key),
 			discovery: disco_config.finish(),
+			bitswap: bitswap.into(),
 			request_responses:
 				request_responses::RequestResponsesBehaviour::new(request_response_protocols.into_iter())?,
-			light_client_handler,
+			light_client_request_sender,
 			events: VecDeque::new(),
-			role,
 
 			block_request_protocol_name,
 		})
@@ -243,8 +250,9 @@ impl<B: BlockT, H: ExHashT> Behaviour<B, H> {
 		protocol: &str,
 		request: Vec<u8>,
 		pending_response: oneshot::Sender<Result<Vec<u8>, RequestFailure>>,
+		connect: IfDisconnected,
 	) {
-		self.request_responses.send_request(target, protocol, request, pending_response)
+		self.request_responses.send_request(target, protocol, request, pending_response, connect)
 	}
 
 	/// Returns a shared reference to the user protocol.
@@ -268,20 +276,17 @@ impl<B: BlockT, H: ExHashT> Behaviour<B, H> {
 	}
 
 	/// Issue a light client request.
-	pub fn light_client_request(&mut self, r: light_client_handler::Request<B>) -> Result<(), light_client_handler::Error> {
-		self.light_client_handler.request(r)
+	pub fn light_client_request(
+		&mut self,
+		r: light_client_requests::sender::Request<B>,
+	) -> Result<(), light_client_requests::sender::SendRequestError> {
+		self.light_client_request_sender.request(r)
 	}
 }
 
-fn reported_roles_to_observed_role(local_role: &Role, remote: &PeerId, roles: Roles) -> ObservedRole {
+fn reported_roles_to_observed_role(roles: Roles) -> ObservedRole {
 	if roles.is_authority() {
-		match local_role {
-			Role::Authority { sentry_nodes }
-				if sentry_nodes.iter().any(|s| s.peer_id == *remote) => ObservedRole::OurSentry,
-			Role::Sentry { validators }
-				if validators.iter().any(|s| s.peer_id == *remote) => ObservedRole::OurGuardedAuthority,
-			_ => ObservedRole::Authority
-		}
+		ObservedRole::Authority
 	} else if roles.is_full() {
 		ObservedRole::Full
 	} else {
@@ -316,15 +321,14 @@ Behaviour<B, H> {
 				}
 
 				self.request_responses.send_request(
-					&target, &self.block_request_protocol_name, buf, pending_response,
+					&target, &self.block_request_protocol_name, buf, pending_response, IfDisconnected::ImmediateError,
 				);
 			},
 			CustomMessageOutcome::NotificationStreamOpened { remote, protocol, roles, notifications_sink } => {
-				let role = reported_roles_to_observed_role(&self.role, &remote, roles);
 				self.events.push_back(BehaviourOut::NotificationStreamOpened {
 					remote,
 					protocol,
-					role: role.clone(),
+					role: reported_roles_to_observed_role(roles),
 					notifications_sink: notifications_sink.clone(),
 				});
 			},
@@ -343,12 +347,16 @@ Behaviour<B, H> {
 				self.events.push_back(BehaviourOut::NotificationsReceived { remote, messages });
 			},
 			CustomMessageOutcome::PeerNewBest(peer_id, number) => {
-				self.light_client_handler.update_best_block(&peer_id, number);
+				self.light_client_request_sender.update_best_block(&peer_id, number);
 			}
-			CustomMessageOutcome::SyncConnected(peer_id) =>
-				self.events.push_back(BehaviourOut::SyncConnected(peer_id)),
-			CustomMessageOutcome::SyncDisconnected(peer_id) =>
-				self.events.push_back(BehaviourOut::SyncDisconnected(peer_id)),
+			CustomMessageOutcome::SyncConnected(peer_id) => {
+				self.light_client_request_sender.inject_connected(peer_id);
+				self.events.push_back(BehaviourOut::SyncConnected(peer_id))
+			}
+			CustomMessageOutcome::SyncDisconnected(peer_id) => {
+				self.light_client_request_sender.inject_disconnected(peer_id);
+				self.events.push_back(BehaviourOut::SyncDisconnected(peer_id))
+			}
 			CustomMessageOutcome::None => {}
 		}
 	}
@@ -443,7 +451,31 @@ impl<B: BlockT, H: ExHashT> NetworkBehaviourEventProcess<DiscoveryOut>
 }
 
 impl<B: BlockT, H: ExHashT> Behaviour<B, H> {
-	fn poll<TEv>(&mut self, _: &mut Context, _: &mut impl PollParameters) -> Poll<NetworkBehaviourAction<TEv, BehaviourOut<B>>> {
+	fn poll<TEv>(
+		&mut self,
+		cx: &mut Context,
+		_: &mut impl PollParameters,
+	) -> Poll<NetworkBehaviourAction<TEv, BehaviourOut<B>>> {
+		use light_client_requests::sender::OutEvent;
+		while let Poll::Ready(Some(event)) =
+			self.light_client_request_sender.poll_next_unpin(cx)
+		{
+			match event {
+				OutEvent::SendRequest {
+					target,
+					request,
+					pending_response,
+					protocol_name,
+				} => self.request_responses.send_request(
+					&target,
+					&protocol_name,
+					request,
+					pending_response,
+					IfDisconnected::ImmediateError,
+				),
+			}
+		}
+
 		if let Some(event) = self.events.pop_front() {
 			return Poll::Ready(NetworkBehaviourAction::GenerateEvent(event))
 		}
