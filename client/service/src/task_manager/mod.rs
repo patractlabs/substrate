@@ -122,7 +122,8 @@ impl SpawnTaskHandle {
 			}
 		};
 
-		let join_handle = self.executor.spawn(Box::pin(future.in_current_span()), task_type);
+		let join_handle = self.executor.spawn(future.in_current_span().boxed(), task_type);
+
 		let mut task_notifier = self.task_notifier.clone();
 		self.executor.spawn(
 			Box::pin(async move {
@@ -231,11 +232,11 @@ pub struct TaskManager {
 }
 
 impl TaskManager {
- 	/// If a Prometheus registry is passed, it will be used to report statistics about the
- 	/// service tasks.
+	/// If a Prometheus registry is passed, it will be used to report statistics about the
+	/// service tasks.
 	pub(super) fn new(
 		executor: TaskExecutor,
-		prometheus_registry: Option<&Registry>
+		prometheus_registry: Option<&Registry>,
 	) -> Result<Self, PrometheusError> {
 		let (signal, on_exit) = exit_future::signal();
 
