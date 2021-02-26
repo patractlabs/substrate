@@ -4,8 +4,9 @@ use sp_std::cmp::min;
 use sp_sandbox::{Error, WasmiError, ReturnValue};
 use pallet_contracts_primitives::{ExecResult, ExecError, ErrorOrigin};
 use codec::{Decode, Encode};
+use frame_support::weights::Weight;
 
-use crate::{env_trace::{EnvTrace, HexVec}, Gas, wasm::runtime::TrapReason};
+use crate::{env_trace::{EnvTrace, HexVec}, wasm::runtime::TrapReason};
 
 /// The host function call stack.
 struct EnvTraceList(Vec<EnvTrace>);
@@ -127,9 +128,9 @@ pub struct NestedRuntime {
 	/// The value in call or the endowment in instantiate
     value: u128,
 	/// The gas limit when this contract is called
-    gas_limit: Gas,
+    gas_limit: Weight,
 	/// The gas left when this contract return
-    gas_left: Gas,
+    gas_left: Weight,
 	/// The host function call stack
     env_trace: EnvTraceList,
 	/// The error in wasm
@@ -196,7 +197,7 @@ impl NestedRuntime {
         selector: Option<HexVec>,
         args: Option<HexVec>,
         value: u128,
-        gas_limit: Gas,
+        gas_limit: Weight,
     ) -> Self {
         NestedRuntime {
             depth,
@@ -232,7 +233,7 @@ impl NestedRuntime {
         self.nest.last_mut().expect("Must not be empty after `nested`")
     }
 
-    pub fn set_gas_left(&mut self, left: Gas) {
+    pub fn set_gas_left(&mut self, left: Weight) {
         self.gas_left = left;
     }
 
@@ -298,7 +299,7 @@ fn unchecked_into_account_id32(raw_vec: Vec<u8>)-> AccountId32{
 pub fn with_nested_runtime<F, R>(
     input_data: Vec<u8>,
     dest: Option<Vec<u8>>,
-    gas_left: Gas,
+    gas_left: Weight,
     value: u128,
     depth: usize,
     self_account: Vec<u8>,

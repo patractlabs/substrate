@@ -447,7 +447,7 @@ fn check_and_instrument<C: ImportSatisfyCheck, T: Config>(
 		schedule
 	)?;
 
-	contract_module = contract_module
+	let code = contract_module
 		// `parse_name_section` must be called before `inject_gas_metering`
 		.parse_name_section()
 		.inject_gas_metering()?

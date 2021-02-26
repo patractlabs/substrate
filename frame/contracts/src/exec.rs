@@ -16,7 +16,7 @@
 // limitations under the License.
 
 use crate::{
-	CodeHash, Event, RawEvent, Config, Module as Contracts,
+	CodeHash, Event, Config, Module as Contracts,
 	TrieId, BalanceOf, ContractInfo, gas::GasMeter, rent::Rent, storage::{self, Storage},
 	Error, ContractInfoOf, Schedule,
 };
@@ -25,15 +25,16 @@ use sp_std::{
 	prelude::*,
 	marker::PhantomData,
 };
-use sp_runtime::traits::{Bounded, Zero, Convert, Saturating};
+use sp_runtime::traits::{Bounded, Zero, Convert, Saturating, SaturatedConversion};
 use frame_support::{
 	dispatch::{DispatchResult, DispatchError},
 	traits::{ExistenceRequirement, Currency, Time, Randomness, Get},
 	weights::Weight,
-	ensure, StorageMap,
+	ensure,
 };
 use pallet_contracts_primitives::{ErrorOrigin, ExecError, ExecReturnValue, ExecResult, ReturnFlags};
 use codec::Encode;
+use crate::trace_runtime::{with_nested_runtime, with_runtime};
 
 pub type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 pub type MomentOf<T> = <<T as Config>::Time as Time>::Moment;
@@ -58,7 +59,11 @@ pub enum TransactorKind {
 ///
 /// This interface is specialized to an account of the executing code, so all
 /// operations are implicitly performed on that account.
-pub trait Ext {
+///
+/// # Note
+///
+/// This trait is sealed and cannot be implemented by downstream crates.
+pub trait Ext: sealing::Sealed {
 	type T: Config;
 
 	/// Returns the storage entry of the executing account by the given `key`.
@@ -73,8 +78,13 @@ pub trait Ext {
 
 	/// Instantiate a contract from the given code.
 	///
+	/// Returns the original code size of the called contract.
 	/// The newly created account will be associated with `code`. `value` specifies the amount of value
 	/// transferred from this to the newly created account (also known as endowment).
+	///
+	/// # Return Value
+	///
+	/// Result<(AccountId, ExecReturnValue, CodeSize), (ExecError, CodeSize)>
 	fn instantiate(
 		&mut self,
 		code: CodeHash<Self::T>,
@@ -82,7 +92,7 @@ pub trait Ext {
 		gas_meter: &mut GasMeter<Self::T>,
 		input_data: Vec<u8>,
 		salt: &[u8],
-	) -> Result<(AccountIdOf<Self::T>, ExecReturnValue), ExecError>;
+	) -> Result<(AccountIdOf<Self::T>, ExecReturnValue, u32), (ExecError, u32)>;
 
 	/// Transfer some amount of funds into the specified account.
 	fn transfer(
@@ -93,24 +103,35 @@ pub trait Ext {
 
 	/// Transfer all funds to `beneficiary` and delete the contract.
 	///
+	/// Returns the original code size of the terminated contract.
 	/// Since this function removes the self contract eagerly, if succeeded, no further actions should
 	/// be performed on this `Ext` instance.
 	///
 	/// This function will fail if the same contract is present on the contract
 	/// call stack.
+	///
+	/// # Return Value
+	///
+	/// Result<CodeSize, (DispatchError, CodeSize)>
 	fn terminate(
 		&mut self,
 		beneficiary: &AccountIdOf<Self::T>,
-	) -> DispatchResult;
+	) -> Result<u32, (DispatchError, u32)>;
 
 	/// Call (possibly transferring some amount of funds) into the specified account.
+	///
+	/// Returns the original code size of the called contract.
+	///
+	/// # Return Value
+	///
+	/// Result<(ExecReturnValue, CodeSize), (ExecError, CodeSize)>
 	fn call(
 		&mut self,
 		to: &AccountIdOf<Self::T>,
 		value: BalanceOf<Self::T>,
 		gas_meter: &mut GasMeter<Self::T>,
 		input_data: Vec<u8>,
-	) -> ExecResult;
+	) -> Result<(ExecReturnValue, u32), (ExecError, u32)>;
 
 	/// Restores the given destination contract sacrificing the current one.
 	///
@@ -119,13 +140,17 @@ pub trait Ext {
 	///
 	/// This function will fail if the same contract is present
 	/// on the contract call stack.
+	///
+	/// # Return Value
+	///
+	/// Result<(CallerCodeSize, DestCodeSize), (DispatchError, CallerCodeSize, DestCodesize)>
 	fn restore_to(
 		&mut self,
 		dest: AccountIdOf<Self::T>,
 		code_hash: CodeHash<Self::T>,
 		rent_allowance: BalanceOf<Self::T>,
 		delta: Vec<StorageKey>,
-	) -> DispatchResult;
+	) -> Result<(u32, u32), (DispatchError, u32, u32)>;
 
 	/// Returns a reference to the account id of the caller.
 	fn caller(&self) -> &AccountIdOf<Self::T>;
@@ -175,6 +200,9 @@ pub trait Ext {
 
 	/// Get a reference to the schedule used by the current call.
 	fn schedule(&self) -> &Schedule<Self::T>;
+
+	/// Returns the depth for current execution
+	fn get_depth(&self) -> usize;
 }
 
 /// Describes the different functions that can be exported by an [`Executable`].
@@ -191,7 +219,11 @@ pub enum ExportedFunction {
 /// order to be able to mock the wasm logic for testing.
 pub trait Executable<T: Config>: Sized {
 	/// Load the executable from storage.
-	fn from_storage(code_hash: CodeHash<T>, schedule: &Schedule<T>) -> Result<Self, DispatchError>;
+	fn from_storage(
+		code_hash: CodeHash<T>,
+		schedule: &Schedule<T>,
+		gas_meter: &mut GasMeter<T>,
+	) -> Result<Self, DispatchError>;
 
 	/// Load the module from storage without re-instrumenting it.
 	///
@@ -204,10 +236,14 @@ pub trait Executable<T: Config>: Sized {
 	fn drop_from_storage(self);
 
 	/// Increment the refcount by one. Fails if the code does not exist on-chain.
-	fn add_user(code_hash: CodeHash<T>) -> DispatchResult;
+	///
+	/// Returns the size of the original code.
+	fn add_user(code_hash: CodeHash<T>) -> Result<u32, DispatchError>;
 
 	/// Decrement the refcount by one and remove the code when it drops to zero.
-	fn remove_user(code_hash: CodeHash<T>);
+	///
+	/// Returns the size of the original code.
+	fn remove_user(code_hash: CodeHash<T>) -> u32;
 
 	/// Execute the specified exported function and return the result.
 	///
@@ -239,6 +275,9 @@ pub trait Executable<T: Config>: Sized {
 	/// without refetching this from storage the result can be inaccurate as it might be
 	/// working with a stale value. Usually this inaccuracy is tolerable.
 	fn occupied_storage(&self) -> u32;
+
+	/// Size of the instrumented code in bytes.
+	fn code_len(&self) -> u32;
 }
 
 pub struct ExecutionContext<'a, T: Config + 'a, E> {
@@ -291,13 +330,17 @@ where
 	}
 
 	/// Make a call to the specified address, optionally transferring some funds.
+	///
+	/// # Return Value
+	///
+	/// Result<(ExecReturnValue, CodeSize), (ExecError, CodeSize)>
 	pub fn call(
 		&mut self,
 		dest: T::AccountId,
 		value: BalanceOf<T>,
 		gas_meter: &mut GasMeter<T>,
 		input_data: Vec<u8>,
-	) -> ExecResult {
+	) -> Result<(ExecReturnValue, u32), (ExecError, u32)> {
 		with_nested_runtime(
 			input_data.clone(),
 			Some(dest.clone().encode()),
@@ -307,27 +350,30 @@ where
 			self.self_account.clone().encode(),
 			|| {
 				if self.depth == T::MaxDepth::get() as usize {
-					Err(Error::<T>::MaxCallDepthReached)?
+					return Err((Error::<T>::MaxCallDepthReached.into(), 0));
 				}
 
 				let contract = <ContractInfoOf<T>>::get(&dest)
 					.and_then(|contract| contract.get_alive())
-					.ok_or(Error::<T>::NotCallable)?;
+					.ok_or((Error::<T>::NotCallable.into(), 0))?;
 
-				let executable = E::from_storage(contract.code_hash, &self.schedule)?;
+				let executable = E::from_storage(contract.code_hash, &self.schedule, gas_meter)
+					.map_err(|e| (e.into(), 0))?;
+				let code_len = executable.code_len();
 
 				// This charges the rent and denies access to a contract that is in need of
 				// eviction by returning `None`. We cannot evict eagerly here because those
 				// changes would be rolled back in case this contract is called by another
 				// contract.
 				// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
-				let contract = Rent::<T, E>::charge(&dest, contract, executable.occupied_storage())?
-					.ok_or(Error::<T>::NotCallable)?;
+				let contract = Rent::<T, E>::charge(&dest, contract, executable.occupied_storage())
+					.map_err(|e| (e.into(), code_len))?
+					.ok_or((Error::<T>::NotCallable.into(), code_len))?;
 
 				let transactor_kind = self.transactor_kind();
 				let caller = self.self_account.clone();
 
-				self.with_nested_context(dest.clone(), contract.trie_id.clone(), |nested| {
+				let result = self.with_nested_context(dest.clone(), contract.trie_id.clone(), |nested| {
 					if value > BalanceOf::<T>::zero() {
 						transfer::<T>(
 							TransferCause::Call,
@@ -338,14 +384,16 @@ where
 						)?
 					}
 
-			let output = executable.execute(
-				nested.new_call_context(caller, value),
-				&ExportedFunction::Call,
-				input_data,
-				gas_meter,
-			).map_err(|e| ExecError { error: e.error, origin: ErrorOrigin::Callee })?;
-			Ok(output)
-		})
+					let output = executable.execute(
+						nested.new_call_context(caller, value),
+						&ExportedFunction::Call,
+						input_data,
+						gas_meter,
+					).map_err(|e| ExecError { error: e.error, origin: ErrorOrigin::Callee })?;
+					Ok(output)
+				}).map_err(|e| (e, code_len))?;
+				Ok((result, code_len))
+			})
 	}
 
 	pub fn instantiate(
@@ -410,32 +458,32 @@ where
 							gas_meter,
 						).map_err(|e| ExecError { error: e.error, origin: ErrorOrigin::Callee })?;
 
-				// We need to re-fetch the contract because changes are written to storage
-				// eagerly during execution.
-				let contract = <ContractInfoOf<T>>::get(&dest)
-					.and_then(|contract| contract.get_alive())
-					.ok_or(Error::<T>::NotCallable)?;
+						// We need to re-fetch the contract because changes are written to storage
+						// eagerly during execution.
+						let contract = <ContractInfoOf<T>>::get(&dest)
+							.and_then(|contract| contract.get_alive())
+							.ok_or(Error::<T>::NotCallable)?;
 
-				// Collect the rent for the first block to prevent the creation of very large
-				// contracts that never intended to pay for even one block.
-				// This also makes sure that it is above the subsistence threshold
-				// in order to keep up the guarantuee that we always leave a tombstone behind
-				// with the exception of a contract that called `seal_terminate`.
-				Rent::<T, E>::charge(&dest, contract, occupied_storage)?
-					.ok_or(Error::<T>::NewContractNotFunded)?;
+						// Collect the rent for the first block to prevent the creation of very large
+						// contracts that never intended to pay for even one block.
+						// This also makes sure that it is above the subsistence threshold
+						// in order to keep up the guarantuee that we always leave a tombstone behind
+						// with the exception of a contract that called `seal_terminate`.
+						Rent::<T, E>::charge(&dest, contract, occupied_storage)?
+							.ok_or(Error::<T>::NewContractNotFunded)?;
 
-				// Deposit an instantiation event.
-				deposit_event::<T>(vec![], RawEvent::Instantiated(caller.clone(), dest.clone()));
+						// Deposit an instantiation event.
+						deposit_event::<T>(vec![], Event::Instantiated(caller.clone(), dest.clone()));
 
-				Ok(output)
-			});
+						Ok(output)
+					});
 
-			use frame_support::storage::TransactionOutcome::*;
-			match output {
-				Ok(_) => Commit(output),
-				Err(_) => Rollback(output),
-			}
-		})?;
+					use frame_support::storage::TransactionOutcome::*;
+					match output {
+						Ok(_) => Commit(output),
+						Err(_) => Rollback(output),
+					}
+				})?;
 
 				Ok((dest, output))
 			})
@@ -600,10 +648,13 @@ where
 		gas_meter: &mut GasMeter<T>,
 		input_data: Vec<u8>,
 		salt: &[u8],
-	) -> Result<(AccountIdOf<T>, ExecReturnValue), ExecError> {
-		let executable = E::from_storage(code_hash, &self.ctx.schedule)?;
-		let result = self.ctx.instantiate(endowment, gas_meter, executable, input_data, salt)?;
-		Ok(result)
+	) -> Result<(AccountIdOf<T>, ExecReturnValue, u32), (ExecError, u32)> {
+		let executable = E::from_storage(code_hash, &self.ctx.schedule, gas_meter)
+			.map_err(|e| (e.into(), 0))?;
+		let code_len = executable.code_len();
+		self.ctx.instantiate(endowment, gas_meter, executable, input_data, salt)
+			.map(|r| (r.0, r.1, code_len))
+			.map_err(|e| (e, code_len))
 	}
 
 	fn transfer(
@@ -623,12 +674,12 @@ where
 	fn terminate(
 		&mut self,
 		beneficiary: &AccountIdOf<Self::T>,
-	) -> DispatchResult {
+	) -> Result<u32, (DispatchError, u32)> {
 		let self_id = self.ctx.self_account.clone();
 		let value = T::Currency::free_balance(&self_id);
 		if let Some(caller_ctx) = self.ctx.caller {
 			if caller_ctx.is_live(&self_id) {
-				return Err(Error::<T>::ReentranceDenied.into());
+				return Err((Error::<T>::ReentranceDenied.into(), 0));
 			}
 		}
 		transfer::<T>(
@@ -637,12 +688,12 @@ where
 			&self_id,
 			beneficiary,
 			value,
-		)?;
+		).map_err(|e| (e, 0))?;
 		if let Some(ContractInfo::Alive(info)) = ContractInfoOf::<T>::take(&self_id) {
-			Storage::<T>::queue_trie_for_deletion(&info)?;
-			E::remove_user(info.code_hash);
-			Contracts::<T>::deposit_event(RawEvent::Terminated(self_id, beneficiary.clone()));
-			Ok(())
+			Storage::<T>::queue_trie_for_deletion(&info).map_err(|e| (e, 0))?;
+			let code_len = E::remove_user(info.code_hash);
+			Contracts::<T>::deposit_event(Event::Terminated(self_id, beneficiary.clone()));
+			Ok(code_len)
 		} else {
 			panic!(
 				"this function is only invoked by in the context of a contract;\
@@ -658,7 +709,7 @@ where
 		value: BalanceOf<T>,
 		gas_meter: &mut GasMeter<T>,
 		input_data: Vec<u8>,
-	) -> ExecResult {
+	) -> Result<(ExecReturnValue, u32), (ExecError, u32)> {
 		self.ctx.call(to.clone(), value, gas_meter, input_data)
 	}
 
@@ -668,10 +719,10 @@ where
 		code_hash: CodeHash<Self::T>,
 		rent_allowance: BalanceOf<Self::T>,
 		delta: Vec<StorageKey>,
-	) -> DispatchResult {
+	) -> Result<(u32, u32), (DispatchError, u32, u32)> {
 		if let Some(caller_ctx) = self.ctx.caller {
 			if caller_ctx.is_live(&self.ctx.self_account) {
-				return Err(Error::<T>::ReentranceDenied.into());
+				return Err((Error::<T>::ReentranceDenied.into(), 0, 0));
 			}
 		}
 
@@ -685,7 +736,7 @@ where
 		if let Ok(_) = result {
 			deposit_event::<Self::T>(
 				vec![],
-				RawEvent::Restored(
+				Event::Restored(
 					self.ctx.self_account.clone(),
 					dest,
 					code_hash,
@@ -731,7 +782,7 @@ where
 	fn deposit_event(&mut self, topics: Vec<T::Hash>, data: Vec<u8>) {
 		deposit_event::<Self::T>(
 			topics,
-			RawEvent::ContractEmitted(self.ctx.self_account.clone(), data)
+			Event::ContractEmitted(self.ctx.self_account.clone(), data)
 		);
 	}
 
@@ -780,6 +831,20 @@ fn deposit_event<T: Config>(
 	)
 }
 
+mod sealing {
+	use super::*;
+
+	pub trait Sealed {}
+
+	impl<'a, 'b: 'a, T: Config, E> Sealed for CallContext<'a, 'b, T, E> {}
+
+	#[cfg(test)]
+	impl Sealed for crate::wasm::MockExt {}
+
+	#[cfg(test)]
+	impl Sealed for &mut crate::wasm::MockExt {}
+}
+
 /// These tests exercise the executive layer.
 ///
 /// In these tests the VM/loader are mocked. Instead of dealing with wasm bytecode they use simple closures.
@@ -790,13 +855,12 @@ mod tests {
 	use super::*;
 	use crate::{
 		gas::GasMeter, tests::{ExtBuilder, Test, Event as MetaEvent},
-		gas::Gas,
 		storage::Storage,
 		tests::{
 			ALICE, BOB, CHARLIE,
 			test_utils::{place_contract, set_balance, get_balance},
 		},
-		Error,
+		Error, Weight,
 	};
 	use sp_runtime::DispatchError;
 	use assert_matches::assert_matches;
@@ -804,7 +868,7 @@ mod tests {
 
 	type MockContext<'a> = ExecutionContext<'a, Test, MockExecutable>;
 
-	const GAS_LIMIT: Gas = 10_000_000_000;
+	const GAS_LIMIT: Weight = 10_000_000_000;
 
 	thread_local! {
 		static LOADER: RefCell<MockLoader> = RefCell::new(MockLoader::default());
@@ -851,7 +915,8 @@ mod tests {
 	impl Executable<Test> for MockExecutable {
 		fn from_storage(
 			code_hash: CodeHash<Test>,
-			_schedule: &Schedule<Test>
+			_schedule: &Schedule<Test>,
+			_gas_meter: &mut GasMeter<Test>,
 		) -> Result<Self, DispatchError> {
 			Self::from_storage_noinstr(code_hash)
 		}
@@ -868,11 +933,11 @@ mod tests {
 
 		fn drop_from_storage(self) {}
 
-		fn add_user(_code_hash: CodeHash<Test>) -> DispatchResult {
-			Ok(())
+		fn add_user(_code_hash: CodeHash<Test>) -> Result<u32, DispatchError> {
+			Ok(0)
 		}
 
-		fn remove_user(_code_hash: CodeHash<Test>) {}
+		fn remove_user(_code_hash: CodeHash<Test>) -> u32 { 0 }
 
 		fn execute<E: Ext<T = Test>>(
 			self,
@@ -893,6 +958,10 @@ mod tests {
 		}
 
 		fn occupied_storage(&self) -> u32 {
+			0
+		}
+
+		fn code_len(&self) -> u32 {
 			0
 		}
 	}
@@ -977,7 +1046,7 @@ mod tests {
 				vec![],
 			).unwrap();
 
-			assert!(!output.is_success());
+			assert!(!output.0.is_success());
 			assert_eq!(get_balance(&origin), 100);
 
 			// the rent is still charged
@@ -1035,8 +1104,8 @@ mod tests {
 			);
 
 			let output = result.unwrap();
-			assert!(output.is_success());
-			assert_eq!(output.data, vec![1, 2, 3, 4]);
+			assert!(output.0.is_success());
+			assert_eq!(output.0.data, vec![1, 2, 3, 4]);
 		});
 	}
 
@@ -1063,8 +1132,8 @@ mod tests {
 			);
 
 			let output = result.unwrap();
-			assert!(!output.is_success());
-			assert_eq!(output.data, vec![1, 2, 3, 4]);
+			assert!(!output.0.is_success());
+			assert_eq!(output.0.data, vec![1, 2, 3, 4]);
 		});
 	}
 
@@ -1103,13 +1172,17 @@ mod tests {
 			let schedule = Contracts::current_schedule();
 			let subsistence = Contracts::<Test>::subsistence_threshold();
 			let mut ctx = MockContext::top_level(ALICE, &schedule);
+			let mut gas_meter = GasMeter::<Test>::new(GAS_LIMIT);
+			let executable = MockExecutable::from_storage(
+				input_data_ch, &schedule, &mut gas_meter
+			).unwrap();
 
 			set_balance(&ALICE, subsistence * 10);
 
 			let result = ctx.instantiate(
 				subsistence * 3,
-				&mut GasMeter::<Test>::new(GAS_LIMIT),
-				MockExecutable::from_storage(input_data_ch, &schedule).unwrap(),
+				&mut gas_meter,
+				executable,
 				vec![1, 2, 3, 4],
 				&[],
 			);
@@ -1136,7 +1209,7 @@ mod tests {
 					// Verify that we've got proper error and set `reached_bottom`.
 					assert_eq!(
 						r,
-						Err(Error::<Test>::MaxCallDepthReached.into())
+						Err((Error::<Test>::MaxCallDepthReached.into(), 0))
 					);
 					*reached_bottom = true;
 				} else {
@@ -1258,12 +1331,16 @@ mod tests {
 		ExtBuilder::default().existential_deposit(15).build().execute_with(|| {
 			let schedule = Contracts::current_schedule();
 			let mut ctx = MockContext::top_level(ALICE, &schedule);
+			let mut gas_meter = GasMeter::<Test>::new(GAS_LIMIT);
+			let executable = MockExecutable::from_storage(
+				dummy_ch, &schedule, &mut gas_meter
+			).unwrap();
 
 			assert_matches!(
 				ctx.instantiate(
 					0, // <- zero endowment
-					&mut GasMeter::<Test>::new(GAS_LIMIT),
-					MockExecutable::from_storage(dummy_ch, &schedule).unwrap(),
+					&mut gas_meter,
+					executable,
 					vec![],
 					&[],
 				),
@@ -1281,13 +1358,17 @@ mod tests {
 		ExtBuilder::default().existential_deposit(15).build().execute_with(|| {
 			let schedule = Contracts::current_schedule();
 			let mut ctx = MockContext::top_level(ALICE, &schedule);
+			let mut gas_meter = GasMeter::<Test>::new(GAS_LIMIT);
+			let executable = MockExecutable::from_storage(
+				dummy_ch, &schedule, &mut gas_meter
+			).unwrap();
 			set_balance(&ALICE, 1000);
 
 			let instantiated_contract_address = assert_matches!(
 				ctx.instantiate(
 					100,
-					&mut GasMeter::<Test>::new(GAS_LIMIT),
-					MockExecutable::from_storage(dummy_ch, &schedule).unwrap(),
+					&mut gas_meter,
+					executable,
 					vec![],
 					&[],
 				),
@@ -1298,7 +1379,7 @@ mod tests {
 			// there are instantiation event.
 			assert_eq!(Storage::<Test>::code_hash(&instantiated_contract_address).unwrap(), dummy_ch);
 			assert_eq!(&events(), &[
-				RawEvent::Instantiated(ALICE, instantiated_contract_address)
+				Event::Instantiated(ALICE, instantiated_contract_address)
 			]);
 		});
 	}
@@ -1312,13 +1393,17 @@ mod tests {
 		ExtBuilder::default().existential_deposit(15).build().execute_with(|| {
 			let schedule = Contracts::current_schedule();
 			let mut ctx = MockContext::top_level(ALICE, &schedule);
+			let mut gas_meter = GasMeter::<Test>::new(GAS_LIMIT);
+			let executable = MockExecutable::from_storage(
+				dummy_ch, &schedule, &mut gas_meter
+			).unwrap();
 			set_balance(&ALICE, 1000);
 
 			let instantiated_contract_address = assert_matches!(
 				ctx.instantiate(
 					100,
-					&mut GasMeter::<Test>::new(GAS_LIMIT),
-					MockExecutable::from_storage(dummy_ch, &schedule).unwrap(),
+					&mut gas_meter,
+					executable,
 					vec![],
 					&[],
 				),
@@ -1340,7 +1425,7 @@ mod tests {
 			let instantiated_contract_address = Rc::clone(&instantiated_contract_address);
 			move |ctx| {
 				// Instantiate a contract and save it's address in `instantiated_contract_address`.
-				let (address, output) = ctx.ext.instantiate(
+				let (address, output, _) = ctx.ext.instantiate(
 					dummy_ch,
 					Contracts::<Test>::subsistence_threshold() * 3,
 					ctx.gas_meter,
@@ -1370,7 +1455,7 @@ mod tests {
 			// there are instantiation event.
 			assert_eq!(Storage::<Test>::code_hash(&instantiated_contract_address).unwrap(), dummy_ch);
 			assert_eq!(&events(), &[
-				RawEvent::Instantiated(BOB, instantiated_contract_address)
+				Event::Instantiated(BOB, instantiated_contract_address)
 			]);
 		});
 	}
@@ -1392,10 +1477,10 @@ mod tests {
 						vec![],
 						&[],
 					),
-					Err(ExecError {
+					Err((ExecError {
 						error: DispatchError::Other("It's a trap!"),
 						origin: ErrorOrigin::Callee,
-					})
+					}, 0))
 				);
 
 				exec_success()
@@ -1433,13 +1518,17 @@ mod tests {
 			.execute_with(|| {
 				let schedule = Contracts::current_schedule();
 				let mut ctx = MockContext::top_level(ALICE, &schedule);
+				let mut gas_meter = GasMeter::<Test>::new(GAS_LIMIT);
+				let executable = MockExecutable::from_storage(
+					terminate_ch, &schedule, &mut gas_meter
+				).unwrap();
 				set_balance(&ALICE, 1000);
 
 				assert_eq!(
 					ctx.instantiate(
 						100,
-						&mut GasMeter::<Test>::new(GAS_LIMIT),
-						MockExecutable::from_storage(terminate_ch, &schedule).unwrap(),
+						&mut gas_meter,
+						executable,
 						vec![],
 						&[],
 					),
@@ -1468,12 +1557,16 @@ mod tests {
 			let subsistence = Contracts::<Test>::subsistence_threshold();
 			let schedule = Contracts::current_schedule();
 			let mut ctx = MockContext::top_level(ALICE, &schedule);
+			let mut gas_meter = GasMeter::<Test>::new(GAS_LIMIT);
+			let executable = MockExecutable::from_storage(
+				rent_allowance_ch, &schedule, &mut gas_meter
+			).unwrap();
 			set_balance(&ALICE, subsistence * 10);
 
 			let result = ctx.instantiate(
 				subsistence * 5,
-				&mut GasMeter::<Test>::new(GAS_LIMIT),
-				MockExecutable::from_storage(rent_allowance_ch, &schedule).unwrap(),
+				&mut gas_meter,
+				executable,
 				vec![],
 				&[],
 			);
