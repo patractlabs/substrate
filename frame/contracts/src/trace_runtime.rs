@@ -25,45 +25,6 @@ impl fmt::Debug for EnvTraceList {
     }
 }
 
-// /// Wrap sandbox::Error for fmt::Debug.
-// struct WasmErrorWrapper(Error);
-// 
-// impl fmt::Debug for WasmErrorWrapper {
-// 	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-// 		match &self.0 {
-// 			Error::WasmiExecution(err) => {
-// 				match err {
-// 					WasmiError::Trap(trap) => {
-// 						write!(f, "Error::WasmiExecution(Trap(Trap {{ kind: {:?} }}))\n", trap.kind())?;
-// 						write!(f, "\twasm backtrace: ")?;
-// 
-// 						for (index, trace) in trap.wasm_trace().iter().enumerate() {
-// 							if index == trap.wasm_trace().len() - 1{
-// 								write!(f, "\n\t╰─>")?;
-// 							} else {
-// 								write!(f, "\n\t|  ")?;
-// 							}
-// 							write!(f, "{}", trace)?;
-// 						}
-// 
-// 						if trap.wasm_trace().is_empty() {
-// 							write!(f, "[]")?;
-// 						}
-// 
-// 						write!(f, "\n")
-// 					},
-// 					_ => {
-// 						write!(f, "{:?}", self.0)
-// 					}
-// 				}
-// 			},
-// 			error => {
-// 				write!(f, "{:?}", error)
-// 			}
-// 		}
-// 	}
-// }
-
 #[derive(PartialEq, Eq, Encode, Decode)]
 pub struct ExecReturnValueTrace {
 	pub flags: u32,
