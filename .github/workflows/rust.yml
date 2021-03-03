@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [ master ]
+    branches: [ europa-contracts ]
   pull_request:
-    branches: [ master ]
+    branches: [ europa-contracts ]
 
 env:
   CARGO_TERM_COLOR: always
