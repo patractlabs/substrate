@@ -26,7 +26,6 @@ use sp_std::prelude::*;
 use sp_io::hashing::blake2_256;
 use sp_core::crypto::UncheckedFrom;
 use frame_support::{
-	debug,
 	storage::child,
 	traits::{Currency, ExistenceRequirement, Get, OnUnbalanced, WithdrawReasons},
 };
@@ -183,7 +182,7 @@ where
 				// accidental loss of a contract. Ony `seal_terminate` can remove a
 				// contract without a tombstone. Therefore this case should be never
 				// hit.
-				debug::error!(
+				frame_support::log::error!(
 					"Tombstoned a contract that is below the subsistence threshold: {:?}",
 					account
 				);
