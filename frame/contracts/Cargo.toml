@@ -26,6 +26,7 @@ sp-runtime = { version = "3.0.0", default-features = false, git = "https://githu
 sp-io = { version = "3.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-std = { version = "3.0.0", default-features = false, git = "https://github.com/paritytech/substrate", branch = "master" }
 wasmi-validation = { version = "0.3.0", default-features = false }
+log = { version = "0.4.14", default-features = false }
 
 pwasm-utils = { git = "https://github.com/patractlabs/wasm-utils", branch = "v0.16.0" }
 sp-sandbox = { package = "ep-sandbox", path = "../../../../primitives/sandbox", default-features = false }
@@ -67,7 +68,7 @@ std = [
 	"wasmi-validation/std",
 	"pallet-contracts-primitives/std",
 	"pallet-contracts-proc-macro/full",
-	"environmental/std",
+	"log/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking",
