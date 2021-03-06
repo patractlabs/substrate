@@ -196,12 +196,12 @@ impl<'a, T: Config> ContractModule<'a, T> {
 		let module = match self.module.parse_names() {
 			Ok(module) => module,
 			Err((err_info, module)) => {
-				frame_support::debug::error!("parse name section error: {:?}", err_info);
+				frame_support::log::error!("parse name section error: {:?}", err_info);
 				module
 			},
 		};
 		if !module.has_names_section() {
-			frame_support::debug::info!("💡 this contract do not have name section part, could not support WASM backtrace or WASM debug.");
+			frame_support::log::info!("💡 this contract do not have name section part, could not support WASM backtrace or WASM debug.");
 		}
 		ContractModule {
 			module,

@@ -103,13 +103,13 @@ pub use crate::{
 	wasm::PrefabWasmModule,
 	schedule::{Schedule, HostFnWeights, InstructionWeights, Limits},
 	pallet::*,
+    weights::WeightInfo,
 };
 use crate::{
 	gas::GasMeter,
 	exec::{ExecutionContext, Executable},
 	rent::Rent,
 	storage::{Storage, DeletedContract},
-	weights::WeightInfo,
 };
 use sp_core::crypto::UncheckedFrom;
 use sp_std::{prelude::*, marker::PhantomData, fmt::Debug};
