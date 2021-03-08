@@ -32,7 +32,7 @@ use sp_core::crypto::UncheckedFrom;
 use frame_support::{
 	dispatch::DispatchResult,
 	debug,
-	storage::child::{self, KillChildStorageResult},
+	storage::child::{self, KillOutcome},
 	traits::Get,
 	weights::Weight,
 };
@@ -270,13 +270,13 @@ where
 				let removed = queue.swap_remove(0);
 				match outcome {
 					// This should not happen as our budget was large enough to remove all keys.
-					KillChildStorageResult::SomeRemaining(_) => {
+					KillOutcome::SomeRemaining => {
 						debug::error!(
 							"After deletion keys are remaining in this child trie: {:?}",
 							removed.trie_id,
 						);
 					},
-					KillChildStorageResult::AllRemoved(_) => (),
+					KillOutcome::AllRemoved => (),
 				}
 			}
 			remaining_key_budget = remaining_key_budget

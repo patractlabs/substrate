@@ -408,12 +408,10 @@ where
 			//
 			// Because panics are really undesirable in the runtime code, we treat this as
 			// a trap for now. Eventually, we might want to revisit this.
-			Err(sp_sandbox::Error::Module(e)) =>
-				Err(string_to_static_str(e.to_string()))?,
 			// Any other kind of a trap should result in a failure.
-			Err(sp_sandbox::Error::Execution) | Err(sp_sandbox::Error::OutOfBounds) =>
+			Err(sp_sandbox::Error::Execution) | Err(sp_sandbox::Error::OutOfBounds) | Err(sp_sandbox::Error::Module)=>
 				Err(Error::<E::T>::ContractTrapped)?,
-			Err(sp_sandbox::Error::WasmiExecution(_)) =>
+			Err(sp_sandbox::Error::Trap(_)) =>
 				Err(Error::<E::T>::ContractTrapped)?
 		}
 	}
@@ -640,10 +638,6 @@ where
 			(err, _) => Self::err_into_return_code(err)
 		}
 	}
-}
-
-fn string_to_static_str(s: String) -> &'static str {
-	Box::leak(s.into_boxed_str())
 }
 
 // ***********************************************************
