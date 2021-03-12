@@ -25,7 +25,7 @@
 
 use sp_std::prelude::*;
 use frame_support::{
-	construct_runtime, parameter_types, debug, RuntimeDebug,
+	construct_runtime, parameter_types, RuntimeDebug,
 	weights::{
 		Weight, IdentityFee,
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
@@ -845,7 +845,7 @@ impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for R
 		);
 		let raw_payload = SignedPayload::new(call, extra)
 			.map_err(|e| {
-				debug::warn!("Unable to create signed payload: {:?}", e);
+				log::warn!("Unable to create signed payload: {:?}", e);
 			})
 			.ok()?;
 		let signature = raw_payload
@@ -1013,9 +1013,9 @@ parameter_types! {
 impl pallet_lottery::Config for Runtime {
 	type ModuleId = LotteryModuleId;
 	type Call = Call;
-	type Event = Event;
 	type Currency = Balances;
 	type Randomness = RandomnessCollectiveFlip;
+	type Event = Event;
 	type ManagerOrigin = EnsureRoot<AccountId>;
 	type MaxCalls = MaxCalls;
 	type ValidateCall = Lottery;
@@ -1024,8 +1024,8 @@ impl pallet_lottery::Config for Runtime {
 }
 
 parameter_types! {
-	pub const AssetDepositBase: Balance = 100 * DOLLARS;
-	pub const AssetDepositPerZombie: Balance = 1 * DOLLARS;
+	pub const AssetDeposit: Balance = 100 * DOLLARS;
+	pub const ApprovalDeposit: Balance = 1 * DOLLARS;
 	pub const StringLimit: u32 = 50;
 	pub const MetadataDepositBase: Balance = 10 * DOLLARS;
 	pub const MetadataDepositPerByte: Balance = 1 * DOLLARS;
@@ -1037,12 +1037,40 @@ impl pallet_assets::Config for Runtime {
 	type AssetId = u32;
 	type Currency = Balances;
 	type ForceOrigin = EnsureRoot<AccountId>;
-	type AssetDepositBase = AssetDepositBase;
-	type AssetDepositPerZombie = AssetDepositPerZombie;
-	type StringLimit = StringLimit;
+	type AssetDeposit = AssetDeposit;
 	type MetadataDepositBase = MetadataDepositBase;
 	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = ApprovalDeposit;
+	type StringLimit = StringLimit;
 	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
+	pub IgnoredIssuance: Balance = Treasury::pot();
+	pub const QueueCount: u32 = 300;
+	pub const MaxQueueLen: u32 = 1000;
+	pub const FifoQueueLen: u32 = 500;
+	pub const Period: BlockNumber = 30 * DAYS;
+	pub const MinFreeze: Balance = 100 * DOLLARS;
+	pub const IntakePeriod: BlockNumber = 10;
+	pub const MaxIntakeBids: u32 = 10;
+}
+
+impl pallet_gilt::Config for Runtime {
+	type Event = Event;
+	type Currency = Balances;
+	type AdminOrigin = frame_system::EnsureRoot<AccountId>;
+	type Deficit = ();
+	type Surplus = ();
+	type IgnoredIssuance = IgnoredIssuance;
+	type QueueCount = QueueCount;
+	type MaxQueueLen = MaxQueueLen;
+	type FifoQueueLen = FifoQueueLen;
+	type Period = Period;
+	type MinFreeze = MinFreeze;
+	type IntakePeriod = IntakePeriod;
+	type MaxIntakeBids = MaxIntakeBids;
+	type WeightInfo = pallet_gilt::weights::SubstrateWeight<Runtime>;
 }
 
 construct_runtime!(
@@ -1088,6 +1116,7 @@ construct_runtime!(
 		Assets: pallet_assets::{Module, Call, Storage, Event<T>},
 		Mmr: pallet_mmr::{Module, Storage},
 		Lottery: pallet_lottery::{Module, Call, Storage, Event<T>},
+		Gilt: pallet_gilt::{Module, Call, Storage, Event<T>, Config},
 	}
 );
 
@@ -1152,7 +1181,7 @@ impl_runtime_apis! {
 		}
 
 		fn execute_block(block: Block) {
-			Executive::execute_block(block)
+			Executive::execute_block(block);
 		}
 
 		fn initialize_block(header: &<Block as BlockT>::Header) {
@@ -1377,7 +1406,6 @@ impl_runtime_apis! {
 	#[cfg(feature = "try-runtime")]
 	impl frame_try_runtime::TryRuntime<Block> for Runtime {
 		fn on_runtime_upgrade() -> Result<(Weight, Weight), sp_runtime::RuntimeString> {
-			frame_support::debug::RuntimeLogger::init();
 			let weight = Executive::try_runtime_upgrade()?;
 			Ok((weight, RuntimeBlockWeights::get().max_block))
 		}
@@ -1425,8 +1453,9 @@ impl_runtime_apis! {
 			add_benchmark!(params, batches, pallet_collective, Council);
 			add_benchmark!(params, batches, pallet_contracts, Contracts);
 			add_benchmark!(params, batches, pallet_democracy, Democracy);
-			add_benchmark!(params, batches, pallet_elections_phragmen, Elections);
 			add_benchmark!(params, batches, pallet_election_provider_multi_phase, ElectionProviderMultiPhase);
+			add_benchmark!(params, batches, pallet_elections_phragmen, Elections);
+			add_benchmark!(params, batches, pallet_gilt, Gilt);
 			add_benchmark!(params, batches, pallet_grandpa, Grandpa);
 			add_benchmark!(params, batches, pallet_identity, Identity);
 			add_benchmark!(params, batches, pallet_im_online, ImOnline);
