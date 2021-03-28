@@ -18,10 +18,11 @@
 //! Environment definition of the wasm smart-contract runtime.
 
 use crate::{
-	HostFnWeights, Config, CodeHash, BalanceOf, Error,
+	Config, CodeHash, BalanceOf, Error,
 	exec::{Ext, StorageKey, TopicOf},
 	gas::{GasMeter, Token, ChargedAmount},
 	wasm::env_def::ConvertibleToWasm,
+	schedule::HostFnWeights,
 	env_trace::*
 };
 use parity_wasm::elements::ValueType;
@@ -230,6 +231,8 @@ pub enum RuntimeToken {
 	ChainExtension(u64),
 	/// Weight charged for copying data from the sandbox.
 	CopyIn(u32),
+	/// Weight of calling `seal_rent_params`.
+	RentParams,
 }
 
 impl<T: Config> Token<T> for RuntimeToken
@@ -298,6 +301,7 @@ where
 				.saturating_add(s.hash_blake2_128_per_byte.saturating_mul(len.into())),
 			ChainExtension(amount) => amount,
 			CopyIn(len) => s.return_per_byte.saturating_mul(len.into()),
+			RentParams => s.rent_params,
 		}
 	}
 }
@@ -642,7 +646,7 @@ define_env!(Env, <E: Ext>,
 	// This call is supposed to be called only by instrumentation injected code.
 	//
 	// - amount: How much gas is used.
-	gas(ctx, amount: u32) => {
+	[seal0] gas(ctx, amount: u32) => {
 		let mut protege = crate::env_trace::Gas::default();
 		let _guard = EnvTraceGuard::new(&protege);
 		ctx.charge_gas(RuntimeToken::MeteringBlock(amount))?;
@@ -666,7 +670,7 @@ define_env!(Env, <E: Ext>,
 	//
 	// - If value length exceeds the configured maximum value length of a storage entry.
 	// - Upon trying to set an empty storage entry (value length is 0).
-	seal_set_storage(ctx, key_ptr: u32, value_ptr: u32, value_len: u32) => {
+	[seal0] seal_set_storage(ctx, key_ptr: u32, value_ptr: u32, value_len: u32) => {
 		let mut protege = SealSetStorage::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -689,7 +693,7 @@ define_env!(Env, <E: Ext>,
 	// # Parameters
 	//
 	// - `key_ptr`: pointer into the linear memory where the location to clear the value is placed.
-	seal_clear_storage(ctx, key_ptr: u32) => {
+	[seal0] seal_clear_storage(ctx, key_ptr: u32) => {
 		let mut protege = SealClearStorage::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -713,7 +717,7 @@ define_env!(Env, <E: Ext>,
 	// # Errors
 	//
 	// `ReturnCode::KeyNotFound`
-	seal_get_storage(ctx, key_ptr: u32, out_ptr: u32, out_len_ptr: u32) -> ReturnCode => {
+	[seal0] seal_get_storage(ctx, key_ptr: u32, out_ptr: u32, out_len_ptr: u32) -> ReturnCode => {
 		let mut protege = SealGetStorage::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -748,7 +752,7 @@ define_env!(Env, <E: Ext>,
 	//
 	// `ReturnCode::BelowSubsistenceThreshold`
 	// `ReturnCode::TransferFailed`
-	seal_transfer(
+	[seal0] seal_transfer(
 		ctx,
 		account_ptr: u32,
 		account_len: u32,
@@ -808,7 +812,7 @@ define_env!(Env, <E: Ext>,
 	// `ReturnCode::BelowSubsistenceThreshold`
 	// `ReturnCode::TransferFailed`
 	// `ReturnCode::NotCallable`
-	seal_call(
+	[seal0] seal_call(
 		ctx,
 		callee_ptr: u32,
 		callee_len: u32,
@@ -924,7 +928,7 @@ define_env!(Env, <E: Ext>,
 	// `ReturnCode::TransferFailed`
 	// `ReturnCode::NewContractNotFunded`
 	// `ReturnCode::CodeNotFound`
-	seal_instantiate(
+	[seal0] seal_instantiate(
 		ctx,
 		code_hash_ptr: u32,
 		code_hash_len: u32,
@@ -1024,7 +1028,7 @@ define_env!(Env, <E: Ext>,
 	// - The contract is live i.e is already on the call stack.
 	// - Failed to send the balance to the beneficiary.
 	// - The deletion queue is full.
-	seal_terminate(
+	[seal0] seal_terminate(
 		ctx,
 		beneficiary_ptr: u32,
 		beneficiary_len: u32
@@ -1059,7 +1063,7 @@ define_env!(Env, <E: Ext>,
 	// # Note
 	//
 	// This function can only be called once. Calling it multiple times will trigger a trap.
-	seal_input(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_input(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealInput::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1092,7 +1096,7 @@ define_env!(Env, <E: Ext>,
 	// --- msb ---
 	//
 	// Using a reserved bit triggers a trap.
-	seal_return(ctx, flags: u32, data_ptr: u32, data_len: u32) => {
+	[seal0] seal_return(ctx, flags: u32, data_ptr: u32, data_len: u32) => {
 		let mut protege = SealReturn::new(flags);
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1116,7 +1120,7 @@ define_env!(Env, <E: Ext>,
 	// If this is a top-level call (i.e. initiated by an extrinsic) the origin address of the
 	// extrinsic will be returned. Otherwise, if this call is initiated by another contract then the
 	// address of the contract will be returned. The value is encoded as T::AccountId.
-	seal_caller(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_caller(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealCaller::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1134,7 +1138,7 @@ define_env!(Env, <E: Ext>,
 	// `out_len_ptr` must point to a u32 value that describes the available space at
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
-	seal_address(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_address(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealAddress::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1159,7 +1163,7 @@ define_env!(Env, <E: Ext>,
 	//
 	// It is recommended to avoid specifying very small values for `gas` as the prices for a single
 	// gas can be smaller than one.
-	seal_weight_to_fee(ctx, gas: u64, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_weight_to_fee(ctx, gas: u64, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealWeightToFee::new(gas);
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1179,7 +1183,7 @@ define_env!(Env, <E: Ext>,
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	//
 	// The data is encoded as Gas.
-	seal_gas_left(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_gas_left(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealGasLeft::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1199,7 +1203,7 @@ define_env!(Env, <E: Ext>,
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	//
 	// The data is encoded as T::Balance.
-	seal_balance(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_balance(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealBalance::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1219,7 +1223,7 @@ define_env!(Env, <E: Ext>,
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	//
 	// The data is encoded as T::Balance.
-	seal_value_transferred(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_value_transferred(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealValueTransferred::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1239,7 +1243,11 @@ define_env!(Env, <E: Ext>,
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	//
 	// The data is encoded as T::Hash.
-	seal_random(ctx, subject_ptr: u32, subject_len: u32, out_ptr: u32, out_len_ptr: u32) => {
+	//
+	// # Deprecation
+	//
+	// This function is deprecated. Users should migrate to the version in the "seal1" module.
+	[seal0] seal_random(ctx, subject_ptr: u32, subject_len: u32, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealRandom::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1252,6 +1260,38 @@ define_env!(Env, <E: Ext>,
 		protege.set_out(Some(ctx.ext.random(&subject_buf).encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
+			out_ptr, out_len_ptr, &ctx.ext.random(&subject_buf).0.encode(), false, already_charged
+		)?)
+	},
+
+	// Stores a random number for the current block and the given subject into the supplied buffer.
+	//
+	// The value is stored to linear memory at the address pointed to by `out_ptr`.
+	// `out_len_ptr` must point to a u32 value that describes the available space at
+	// `out_ptr`. This call overwrites it with the size of the value. If the available
+	// space at `out_ptr` is less than the size of the value a trap is triggered.
+	//
+	// The data is encoded as (T::Hash, T::BlockNumber).
+	//
+	// # Changes from v0
+	//
+	// In addition to the seed it returns the block number since which it was determinable
+	// by chain observers.
+	//
+	// # Note
+	//
+	// The returned seed should only be used to distinguish commitments made before
+	// the returned block number. If the block number is too early (i.e. commitments were
+	// made afterwards), then ensure no further commitments may be made and repeatedly
+	// call this on later blocks until the block number returned is later than the latest
+	// commitment.
+	[seal1] seal_random(ctx, subject_ptr: u32, subject_len: u32, out_ptr: u32, out_len_ptr: u32) => {
+		ctx.charge_gas(RuntimeToken::Random)?;
+		if subject_len > ctx.ext.schedule().limits.subject_len {
+			Err(Error::<E::T>::RandomSubjectTooLong)?;
+		}
+		let subject_buf = ctx.read_sandbox_memory(subject_ptr, subject_len)?;
+		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.random(&subject_buf).encode(), false, already_charged
 		)?)
 	},
@@ -1262,7 +1302,7 @@ define_env!(Env, <E: Ext>,
 	// `out_len_ptr` must point to a u32 value that describes the available space at
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
-	seal_now(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_now(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealNow::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1277,7 +1317,7 @@ define_env!(Env, <E: Ext>,
 	// Stores the minimum balance (a.k.a. existential deposit) into the supplied buffer.
 	//
 	// The data is encoded as T::Balance.
-	seal_minimum_balance(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_minimum_balance(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealMinimumBalance::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1304,7 +1344,7 @@ define_env!(Env, <E: Ext>,
 	// a contract to leave a tombstone the balance of the contract must not go
 	// below the sum of existential deposit and the tombstone deposit. The sum
 	// is commonly referred as subsistence threshold in code.
-	seal_tombstone_deposit(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_tombstone_deposit(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealTombstoneDeposit::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1347,7 +1387,7 @@ define_env!(Env, <E: Ext>,
 	// - Tombstone hashes do not match.
 	// - The calling contract is already present on the call stack.
 	// - The supplied code_hash does not exist on-chain.
-	seal_restore_to(
+	[seal0] seal_restore_to(
 		ctx,
 		dest_ptr: u32,
 		dest_len: u32,
@@ -1428,8 +1468,13 @@ define_env!(Env, <E: Ext>,
 	// - topics_len - the length of the topics buffer. Pass 0 if you want to pass an empty vector.
 	// - data_ptr - a pointer to a raw data buffer which will saved along the event.
 	// - data_len - the length of the data buffer.
-	seal_deposit_event(ctx, topics_ptr: u32, topics_len: u32, data_ptr: u32, data_len: u32) => {
-
+	[seal0] seal_deposit_event(
+		ctx,
+		topics_ptr: u32,
+		topics_len: u32,
+		data_ptr: u32,
+		data_len: u32
+	) => {
 		fn has_duplicates<T: Ord>(items: &mut Vec<T>) -> bool {
 			// # Warning
 			//
@@ -1496,7 +1541,7 @@ define_env!(Env, <E: Ext>,
 	// - value_ptr: a pointer to the buffer with value, how much to allow for rent
 	//   Should be decodable as a `T::Balance`. Traps otherwise.
 	// - value_len: length of the value buffer.
-	seal_set_rent_allowance(ctx, value_ptr: u32, value_len: u32) => {
+	[seal0] seal_set_rent_allowance(ctx, value_ptr: u32, value_len: u32) => {
 		let mut protege = SealSetRentAllowance::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1518,7 +1563,7 @@ define_env!(Env, <E: Ext>,
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	//
 	// The data is encoded as T::Balance.
-	seal_rent_allowance(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_rent_allowance(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealRentAllowance::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1533,13 +1578,13 @@ define_env!(Env, <E: Ext>,
 	// Prints utf8 encoded string from the data buffer.
 	// Only available on `--dev` chains.
 	// This function may be removed at any time, superseded by a more general contract debugging feature.
-	seal_println(ctx, str_ptr: u32, str_len: u32) => {
+	[seal0] seal_println(ctx, str_ptr: u32, str_len: u32) => {
 		let mut protege = SealPrintln::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
 		let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
 		if let Ok(utf8) = core::str::from_utf8(&data) {
-			sp_runtime::print(&utf8);
+			log::info!(target: "runtime::contracts", "seal_println: {}", utf8);
 			protege.set_str(Some(utf8.to_string()));
 		}
 		Ok(())
@@ -1551,7 +1596,7 @@ define_env!(Env, <E: Ext>,
 	// `out_len_ptr` must point to a u32 value that describes the available space at
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
-	seal_block_number(ctx, out_ptr: u32, out_len_ptr: u32) => {
+	[seal0] seal_block_number(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealBlockNumber::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1583,7 +1628,7 @@ define_env!(Env, <E: Ext>,
 	// - `output_ptr`: the pointer into the linear memory where the output
 	//                 data is placed. The function will write the result
 	//                 directly into this buffer.
-	seal_hash_sha2_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
+	[seal0] seal_hash_sha2_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
 		let mut protege = SealHashSha256::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1616,7 +1661,7 @@ define_env!(Env, <E: Ext>,
 	// - `output_ptr`: the pointer into the linear memory where the output
 	//                 data is placed. The function will write the result
 	//                 directly into this buffer.
-	seal_hash_keccak_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
+	[seal0] seal_hash_keccak_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
 		let mut protege = SealHashKeccak256::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1649,7 +1694,7 @@ define_env!(Env, <E: Ext>,
 	// - `output_ptr`: the pointer into the linear memory where the output
 	//                 data is placed. The function will write the result
 	//                 directly into this buffer.
-	seal_hash_blake2_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
+	[seal0] seal_hash_blake2_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
 		let mut protege = SealHashBlake256::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1682,7 +1727,7 @@ define_env!(Env, <E: Ext>,
 	// - `output_ptr`: the pointer into the linear memory where the output
 	//                 data is placed. The function will write the result
 	//                 directly into this buffer.
-	seal_hash_blake2_128(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
+	[seal0] seal_hash_blake2_128(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
 		let mut protege = SealHashBlake128::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
@@ -1706,7 +1751,7 @@ define_env!(Env, <E: Ext>,
 	//
 	// If no chain extension exists the contract will trap with the `NoChainExtension`
 	// module error.
-	seal_call_chain_extension(
+	[seal0] seal_call_chain_extension(
 		ctx,
 		func_id: u32,
 		input_ptr: u32,
@@ -1726,5 +1771,26 @@ define_env!(Env, <E: Ext>,
 				data,
 			})),
 		}
+	},
+
+	// Stores the rent params into the supplied buffer.
+	//
+	// The value is stored to linear memory at the address pointed to by `out_ptr`.
+	// `out_len_ptr` must point to a u32 value that describes the available space at
+	// `out_ptr`. This call overwrites it with the size of the value. If the available
+	// space at `out_ptr` is less than the size of the value a trap is triggered.
+	//
+	// The data is encoded as [`crate::exec::RentParams`].
+	//
+	// # Note
+	//
+	// The returned information was collected and cached when the current contract call
+	// started execution. Any change to those values that happens due to actions of the
+	// current call or contracts that are called by this contract are not considered.
+	[seal0] seal_rent_params(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		ctx.charge_gas(RuntimeToken::RentParams)?;
+		Ok(ctx.write_sandbox_output(
+			out_ptr, out_len_ptr, &ctx.ext.rent_params().encode(), false, already_charged
+		)?)
 	},
 );
