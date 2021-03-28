@@ -234,6 +234,16 @@ pub struct SealRandom {
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+pub struct SealRandomV1 {
+    #[set]
+    subject: Option<HexVec>,
+    #[set]
+    out: Option<HexVec>,
+    #[set]
+    block_number: Option<u32>,
+}
+
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealNow {
     #[set]
     out: Option<HexVec>,
@@ -364,6 +374,8 @@ pub enum EnvTrace {
     SealValueTransferred(SealValueTransferred),
     #[derivative(Debug = "transparent")]
     SealRandom(SealRandom),
+    #[derivative(Debug = "transparent")]
+    SealRandomV1(SealRandomV1),
     #[derivative(Debug = "transparent")]
     SealNow(SealNow),
     #[derivative(Debug = "transparent")]

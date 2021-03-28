@@ -1256,11 +1256,14 @@ define_env!(Env, <E: Ext>,
 			Err(Error::<E::T>::RandomSubjectTooLong)?;
 		}
 		let subject_buf = ctx.read_sandbox_memory(subject_ptr, subject_len)?;
+
+		let hash = ctx.ext.random(&subject_buf).0;
+
 		protege.set_subject(Some(subject_buf.clone().into()));
-		protege.set_out(Some(ctx.ext.random(&subject_buf).encode().clone().into()));
+		protege.set_out(Some(hash.encode().into()));
 
 		Ok(ctx.write_sandbox_output(
-			out_ptr, out_len_ptr, &ctx.ext.random(&subject_buf).0.encode(), false, already_charged
+			out_ptr, out_len_ptr, &hash.encode(), false, already_charged
 		)?)
 	},
 
@@ -1286,13 +1289,23 @@ define_env!(Env, <E: Ext>,
 	// call this on later blocks until the block number returned is later than the latest
 	// commitment.
 	[seal1] seal_random(ctx, subject_ptr: u32, subject_len: u32, out_ptr: u32, out_len_ptr: u32) => {
+		let mut protege = SealRandomV1::default();
+		let _guard = EnvTraceGuard::new(&protege);
+
 		ctx.charge_gas(RuntimeToken::Random)?;
 		if subject_len > ctx.ext.schedule().limits.subject_len {
 			Err(Error::<E::T>::RandomSubjectTooLong)?;
 		}
 		let subject_buf = ctx.read_sandbox_memory(subject_ptr, subject_len)?;
+
+		let (random, number) = ctx.ext.random(&subject_buf);
+
+		protege.set_subject(Some(subject_buf.clone().into()));
+		protege.set_out(Some(random.encode().into()));
+		protege.set_block_number(Some(number.saturated_into::<u32>()));
+
 		Ok(ctx.write_sandbox_output(
-			out_ptr, out_len_ptr, &ctx.ext.random(&subject_buf).encode(), false, already_charged
+			out_ptr, out_len_ptr, &(random, number).encode(), false, already_charged
 		)?)
 	},
 
