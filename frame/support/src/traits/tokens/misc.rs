@@ -37,6 +37,9 @@ pub enum WithdrawConsequence<Balance> {
 	/// There has been an underflow in the system. This is indicative of a corrupt state and
 	/// likely unrecoverable.
 	Underflow,
+	/// There has been an overflow in the system. This is indicative of a corrupt state and
+	/// likely unrecoverable.
+	Overflow,
 	/// Not enough of the funds in the account are unavailable for withdrawal.
 	Frozen,
 	/// Account balance would reduce to zero, potentially destroying it. The parameter is the
@@ -56,6 +59,7 @@ impl<Balance: Zero> WithdrawConsequence<Balance> {
 			WouldDie => Err(TokenError::WouldDie),
 			UnknownAsset => Err(TokenError::UnknownAsset),
 			Underflow => Err(TokenError::Underflow),
+			Overflow => Err(TokenError::Overflow),
 			Frozen => Err(TokenError::Frozen),
 			ReducedToZero(result) => Ok(result),
 			Success => Ok(Zero::zero()),
@@ -122,7 +126,7 @@ pub enum BalanceStatus {
 bitflags::bitflags! {
 	/// Reasons for moving funds out of an account.
 	#[derive(Encode, Decode)]
-	pub struct WithdrawReasons: i8 {
+	pub struct WithdrawReasons: u8 {
 		/// In order to pay for (system) transaction costs.
 		const TRANSACTION_PAYMENT = 0b00000001;
 		/// In order to transfer ownership.

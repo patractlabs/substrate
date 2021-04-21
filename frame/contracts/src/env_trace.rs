@@ -29,6 +29,12 @@ impl From<Vec<u8>> for HexVec {
     }
 }
 
+impl From<sp_core::Bytes> for HexVec {
+    fn from(vec: sp_core::Bytes) -> Self {
+        HexVec(vec.0)
+    }
+}
+
 pub trait Wrapper: Clone {
     fn wrap(&self) -> EnvTrace;
 }

@@ -20,15 +20,8 @@
 //! NOTE: If you're looking for `parameter_types`, it has moved in to the top-level module.
 
 pub mod tokens;
-pub use tokens::fungible::{
-	Inspect as InspectFungible, Mutate as MutateFungible, Transfer as TransferFungible,
-	Reserve as ReserveFungible, Balanced as BalancedFungible, Unbalanced as UnbalancedFungible,
-	ItemOf,
-};
-pub use tokens::fungibles::{
-	Inspect as InspectFungibles, Mutate as MutateFungibles, Transfer as TransferFungibles,
-	Reserve as ReserveFungibles, Balanced as BalancedFungibles, Unbalanced as UnbalancedFungibles,
-};
+pub use tokens::fungible;
+pub use tokens::fungibles;
 pub use tokens::currency::{
 	Currency, LockIdentifier, LockableCurrency, ReservableCurrency, VestingSchedule,
 };
@@ -36,7 +29,10 @@ pub use tokens::imbalance::{Imbalance, OnUnbalanced, SignedImbalance};
 pub use tokens::{ExistenceRequirement, WithdrawReasons, BalanceStatus};
 
 mod members;
-pub use members::{Contains, ContainsLengthBound, InitializeMembers, ChangeMembers};
+pub use members::{
+	Contains, ContainsLengthBound, SortedMembers, InitializeMembers, ChangeMembers, All, IsInVec,
+	AsContains,
+};
 
 mod validation;
 pub use validation::{
@@ -53,7 +49,8 @@ pub use filter::{
 mod misc;
 pub use misc::{
 	Len, Get, GetDefault, HandleLifetime, TryDrop, Time, UnixTime, IsType, IsSubType, ExecuteBlock,
-	SameOrOther, OnNewAccount, OnKilledAccount, OffchainWorker,
+	SameOrOther, OnNewAccount, OnKilledAccount, OffchainWorker, GetBacking, Backing, ExtrinsicCall,
+	EnsureInherentsAreFirst,
 };
 
 mod stored_map;
@@ -64,7 +61,7 @@ pub use randomness::Randomness;
 mod metadata;
 pub use metadata::{
 	CallMetadata, GetCallMetadata, GetCallName, PalletInfo, PalletVersion, GetPalletVersion,
-	PALLET_VERSION_STORAGE_KEY_POSTFIX,
+	PALLET_VERSION_STORAGE_KEY_POSTFIX, PalletInfoAccess,
 };
 
 mod hooks;

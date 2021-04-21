@@ -437,7 +437,8 @@ fn no_candidate_emergency_condition() {
 			<Staking as crate::Store>::MinimumValidatorCount::put(10);
 
 			// try to chill
-			let _ = Staking::chill(Origin::signed(10));
+			let res = Staking::chill(Origin::signed(10));
+			assert_ok!(res);
 
 			// trigger era
 			mock::start_active_era(1);
@@ -3825,6 +3826,14 @@ fn do_not_die_when_active_is_ed() {
 				}
 			);
 		})
+}
+
+#[test]
+fn on_finalize_weight_is_nonzero() {
+	ExtBuilder::default().build_and_execute(|| {
+		let on_finalize_weight = <Test as frame_system::Config>::DbWeight::get().reads(1);
+		assert!(Staking::on_initialize(1) >= on_finalize_weight);
+	})
 }
 
 mod election_data_provider {

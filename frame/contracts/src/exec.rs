@@ -32,7 +32,7 @@ use frame_support::{
 	weights::Weight,
 	ensure,
 };
-use pallet_contracts_primitives::{ErrorOrigin, ExecError, ExecReturnValue, ExecResult, ReturnFlags};
+use pallet_contracts_primitives::{ExecReturnValue, ReturnFlags};
 use codec::Encode;
 use crate::trace_runtime::{with_nested_runtime, with_runtime};
 
@@ -41,9 +41,48 @@ pub type MomentOf<T> = <<T as Config>::Time as Time>::Moment;
 pub type SeedOf<T> = <T as frame_system::Config>::Hash;
 pub type BlockNumberOf<T> = <T as frame_system::Config>::BlockNumber;
 pub type StorageKey = [u8; 32];
+pub type ExecResult = Result<ExecReturnValue, ExecError>;
 
 /// A type that represents a topic of an event. At the moment a hash is used.
 pub type TopicOf<T> = <T as frame_system::Config>::Hash;
+
+/// Origin of the error.
+///
+/// Call or instantiate both called into other contracts and pass through errors happening
+/// in those to the caller. This enum is for the caller to distinguish whether the error
+/// happened during the execution of the callee or in the current execution context.
+// #[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(sp_runtime::RuntimeDebug)]
+pub enum ErrorOrigin {
+	/// Caller error origin.
+	///
+	/// The error happened in the current exeuction context rather than in the one
+	/// of the contract that is called into.
+	Caller,
+	/// The error happened during execution of the called contract.
+	Callee,
+}
+
+/// Error returned by contract exection.
+// #[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(sp_runtime::RuntimeDebug)]
+pub struct ExecError {
+	/// The reason why the execution failed.
+	pub error: DispatchError,
+	/// Origin of the error.
+	pub origin: ErrorOrigin,
+}
+
+impl<T: Into<DispatchError>> From<T> for ExecError {
+	fn from(error: T) -> Self {
+		Self {
+			error: error.into(),
+			origin: ErrorOrigin::Caller,
+		}
+	}
+}
 
 /// Information needed for rent calculations that can be requested by a contract.
 #[derive(codec::Encode)]
@@ -965,7 +1004,7 @@ mod tests {
 	use super::*;
 	use crate::{
 		gas::GasMeter, tests::{ExtBuilder, Test, Event as MetaEvent},
-		storage::Storage,
+		storage::{Storage, ContractAbsentError},
 		tests::{
 			ALICE, BOB, CHARLIE,
 			test_utils::{place_contract, set_balance, get_balance},
@@ -973,6 +1012,8 @@ mod tests {
 		exec::ExportedFunction::*,
 		Error, Weight, CurrentSchedule,
 	};
+	use sp_core::Bytes;
+	use frame_support::assert_noop;
 	use sp_runtime::DispatchError;
 	use assert_matches::assert_matches;
 	use std::{cell::RefCell, collections::HashMap, rc::Rc};
@@ -1150,7 +1191,7 @@ mod tests {
 	}
 
 	fn exec_success() -> ExecResult {
-		Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: Vec::new() })
+		Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: Bytes(Vec::new()) })
 	}
 
 	#[test]
@@ -1213,7 +1254,7 @@ mod tests {
 
 		let return_ch = MockLoader::insert(
 			Call,
-			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::REVERT, data: Vec::new() })
+			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::REVERT, data: Bytes(Vec::new()) })
 		);
 
 		ExtBuilder::default().build().execute_with(|| {
@@ -1273,7 +1314,7 @@ mod tests {
 		let dest = BOB;
 		let return_ch = MockLoader::insert(
 			Call,
-			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: vec![1, 2, 3, 4] })
+			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: Bytes(vec![1, 2, 3, 4]) })
 		);
 
 		ExtBuilder::default().build().execute_with(|| {
@@ -1290,7 +1331,7 @@ mod tests {
 
 			let output = result.unwrap();
 			assert!(output.0.is_success());
-			assert_eq!(output.0.data, vec![1, 2, 3, 4]);
+			assert_eq!(output.0.data, Bytes(vec![1, 2, 3, 4]));
 		});
 	}
 
@@ -1302,7 +1343,7 @@ mod tests {
 		let dest = BOB;
 		let return_ch = MockLoader::insert(
 			Call,
-			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::REVERT, data: vec![1, 2, 3, 4] })
+			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::REVERT, data: Bytes(vec![1, 2, 3, 4]) })
 		);
 
 		ExtBuilder::default().build().execute_with(|| {
@@ -1319,7 +1360,7 @@ mod tests {
 
 			let output = result.unwrap();
 			assert!(!output.0.is_success());
-			assert_eq!(output.0.data, vec![1, 2, 3, 4]);
+			assert_eq!(output.0.data, Bytes(vec![1, 2, 3, 4]));
 		});
 	}
 
@@ -1539,7 +1580,7 @@ mod tests {
 	fn instantiation_work_with_success_output() {
 		let dummy_ch = MockLoader::insert(
 			Constructor,
-			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: vec![80, 65, 83, 83] })
+			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: Bytes(vec![80, 65, 83, 83]) })
 		);
 
 		ExtBuilder::default().existential_deposit(15).build().execute_with(|| {
@@ -1559,7 +1600,7 @@ mod tests {
 					vec![],
 					&[],
 				),
-				Ok((address, ref output)) if output.data == vec![80, 65, 83, 83] => address
+				Ok((address, ref output)) if output.data == Bytes(vec![80, 65, 83, 83]) => address
 			);
 
 			// Check that the newly created account has the expected code hash and
@@ -1575,7 +1616,7 @@ mod tests {
 	fn instantiation_fails_with_failing_output() {
 		let dummy_ch = MockLoader::insert(
 			Constructor,
-			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::REVERT, data: vec![70, 65, 73, 76] })
+			|_, _| Ok(ExecReturnValue { flags: ReturnFlags::REVERT, data: Bytes(vec![70, 65, 73, 76]) })
 		);
 
 		ExtBuilder::default().existential_deposit(15).build().execute_with(|| {
@@ -1595,11 +1636,14 @@ mod tests {
 					vec![],
 					&[],
 				),
-				Ok((address, ref output)) if output.data == vec![70, 65, 73, 76] => address
+				Ok((address, ref output)) if output.data == Bytes(vec![70, 65, 73, 76]) => address
 			);
 
 			// Check that the account has not been created.
-			assert!(Storage::<Test>::code_hash(&instantiated_contract_address).is_err());
+			assert_noop!(
+				Storage::<Test>::code_hash(&instantiated_contract_address),
+				ContractAbsentError,
+			);
 			assert!(events().is_empty());
 		});
 	}

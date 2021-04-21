@@ -2,11 +2,14 @@ use sp_std::fmt::{self, Formatter};
 use sp_core::crypto::AccountId32;
 use sp_std::cmp::min;
 use sp_sandbox::{Error, ReturnValue};
-use pallet_contracts_primitives::{ExecResult, ExecError, ErrorOrigin};
 use codec::{Decode, Encode};
 use frame_support::weights::Weight;
 
-use crate::{env_trace::{EnvTrace, HexVec}, wasm::runtime::TrapReason};
+use crate::{
+    env_trace::{EnvTrace, HexVec},
+    exec::{ExecResult, ExecError, ErrorOrigin},
+    wasm::runtime::TrapReason
+};
 
 /// The host function call stack.
 struct EnvTraceList(Vec<EnvTrace>);
@@ -55,7 +58,7 @@ pub fn into_exec_result_trace(ext_result: &ExecResult) -> ExecResultTrace {
 						1
 					}
 				},
-				data: value.data.clone()
+				data: value.data.to_vec()
 			})
 		},
 		Err(e) => {
