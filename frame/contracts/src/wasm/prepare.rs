@@ -363,12 +363,6 @@ impl<'a, T: Config> ContractModule<'a, T> {
 				.get(*type_idx as usize)
 				.ok_or_else(|| "validation: import entry points to a non-existent type")?;
 
-			// We disallow importing `seal_println` unless debug features are enabled,
-			// which should only be allowed on a dev chain
-			if !self.schedule.enable_println && import.field().as_bytes() == b"seal_println" {
-				return Err("module imports `seal_println` but debug features disabled");
-			}
-
 			if !T::ChainExtension::enabled() &&
 				import.field().as_bytes() == b"seal_call_chain_extension"
 			{
@@ -461,7 +455,7 @@ fn do_preparation<C: ImportSatisfyCheck, T: Config>(
 		schedule,
 	)?;
 	Ok(PrefabWasmModule {
-		schedule_version: schedule.version,
+		instruction_weights_version: schedule.instruction_weights.version,
 		initial,
 		maximum,
 		_reserved: None,
@@ -527,7 +521,7 @@ pub mod benchmarking {
 		let contract_module = ContractModule::new(&original_code, schedule)?;
 		let memory_limits = get_memory_limits(contract_module.scan_imports::<()>(&[])?, schedule)?;
 		Ok(PrefabWasmModule {
-			schedule_version: schedule.version,
+			instruction_weights_version: schedule.instruction_weights.version,
 			initial: memory_limits.0,
 			maximum: memory_limits.1,
 			_reserved: None,
@@ -569,8 +563,6 @@ mod tests {
 
 			// new version of nop with other data type for argumebt
 			[seal1] nop(_ctx, _unused: i32) => { unreachable!(); },
-
-			[seal0] seal_println(_ctx, _ptr: u32, _len: u32) => { unreachable!(); },
 		);
 	}
 
@@ -960,36 +952,6 @@ mod tests {
 			"#,
 			Err("module imports a non-existent function")
 		);
-
-		prepare_test!(seal_println_debug_disabled,
-			r#"
-			(module
-				(import "seal0" "seal_println" (func $seal_println (param i32 i32)))
-
-				(func (export "call"))
-				(func (export "deploy"))
-			)
-			"#,
-			Err("module imports `seal_println` but debug features disabled")
-		);
-
-		#[test]
-		fn seal_println_debug_enabled() {
-			let wasm = wat::parse_str(
-				r#"
-				(module
-					(import "seal0" "seal_println" (func $seal_println (param i32 i32)))
-
-					(func (export "call"))
-					(func (export "deploy"))
-				)
-				"#
-			).unwrap();
-			let mut schedule = Schedule::default();
-			schedule.enable_println = true;
-			let r = do_preparation::<env::Test, crate::tests::Test>(wasm, &schedule);
-			assert_matches::assert_matches!(r, Ok(_));
-		}
 	}
 
 	mod entrypoints {

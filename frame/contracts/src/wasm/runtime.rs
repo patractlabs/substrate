@@ -20,7 +20,7 @@
 use crate::{
 	Config, CodeHash, BalanceOf, Error,
 	exec::{Ext, StorageKey, TopicOf, ExecResult, ExecError},
-	gas::{GasMeter, Token, ChargedAmount},
+	gas::{Token, ChargedAmount},
 	wasm::env_def::ConvertibleToWasm,
 	schedule::HostFnWeights,
 	env_trace::*
@@ -30,7 +30,7 @@ use frame_support::{dispatch::DispatchError, ensure, traits::Get, weights::Weigh
 use sp_std::prelude::*;
 use codec::{Decode, DecodeAll, Encode};
 use sp_runtime::{traits::SaturatedConversion, RuntimeDebug};
-use sp_core::{crypto::UncheckedFrom, Bytes};
+use sp_core::{Bytes, crypto::UncheckedFrom};
 use sp_io::hashing::{
 	keccak_256,
 	blake2_256,
@@ -76,6 +76,9 @@ pub enum ReturnCode {
 	/// The contract that was called is either no contract at all (a plain account)
 	/// or is a tombstone.
 	NotCallable = 8,
+	/// The call to `seal_debug_message` had no effect because debug message
+	/// recording was disabled.
+	LoggingDisabled = 9,
 }
 
 impl ConvertibleToWasm for ReturnCode {
@@ -147,7 +150,7 @@ impl<T: Into<DispatchError>> From<T> for TrapReason {
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 #[derive(Copy, Clone)]
-pub enum RuntimeToken {
+pub enum RuntimeCosts {
 	/// Charge the gas meter with the cost of a metering block. The charged costs are
 	/// the supplied cost of the block plus the overhead of the metering itself.
 	MeteringBlock(u32),
@@ -191,6 +194,8 @@ pub enum RuntimeToken {
 	Random,
 	/// Weight of calling `seal_deposit_event` with the given number of topics and event size.
 	DepositEvent{num_topic: u32, len: u32},
+	/// Weight of calling `seal_debug_message`.
+	DebugMessage,
 	/// Weight of calling `seal_set_rent_allowance`.
 	SetRentAllowance,
 	/// Weight of calling `seal_set_storage` for the given storage item size.
@@ -235,15 +240,14 @@ pub enum RuntimeToken {
 	RentParams,
 }
 
-impl<T: Config> Token<T> for RuntimeToken
-where
-	T::AccountId: UncheckedFrom<T::Hash>, T::AccountId: AsRef<[u8]>
-{
-	type Metadata = HostFnWeights<T>;
-
-	fn calculate_amount(&self, s: &Self::Metadata) -> Weight {
-		use self::RuntimeToken::*;
-		match *self {
+impl RuntimeCosts {
+	fn token<T>(&self, s: &HostFnWeights<T>) -> RuntimeToken
+	where
+		T: Config,
+		T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+	{
+		use self::RuntimeCosts::*;
+		let weight = match *self {
 			MeteringBlock(amount) => s.gas.saturating_add(amount.into()),
 			Caller => s.caller,
 			Address => s.address,
@@ -272,6 +276,7 @@ where
 			DepositEvent{num_topic, len} => s.deposit_event
 				.saturating_add(s.deposit_event_per_topic.saturating_mul(num_topic.into()))
 				.saturating_add(s.deposit_event_per_byte.saturating_mul(len.into())),
+			DebugMessage => s.debug_message,
 			SetRentAllowance => s.set_rent_allowance,
 			SetStorage(len) => s.set_storage
 				.saturating_add(s.set_storage_per_byte.saturating_mul(len.into())),
@@ -302,14 +307,37 @@ where
 			ChainExtension(amount) => amount,
 			CopyIn(len) => s.return_per_byte.saturating_mul(len.into()),
 			RentParams => s.rent_params,
+		};
+		RuntimeToken {
+			#[cfg(test)]
+			_created_from: *self,
+			weight,
 		}
+	}
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Copy, Clone)]
+struct RuntimeToken {
+	#[cfg(test)]
+	_created_from: RuntimeCosts,
+	weight: Weight,
+}
+
+impl<T> Token<T> for RuntimeToken
+where
+	T: Config,
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+{
+	fn weight(&self) -> Weight {
+		self.weight
 	}
 }
 
 /// This is only appropriate when writing out data of constant size that does not depend on user
 /// input. In this case the costs for this copy was already charged as part of the token at
 /// the beginning of the API entry point.
-fn already_charged(_: u32) -> Option<RuntimeToken> {
+fn already_charged(_: u32) -> Option<RuntimeCosts> {
 	None
 }
 
@@ -318,7 +346,6 @@ pub struct Runtime<'a, E: Ext + 'a> {
 	ext: &'a mut E,
 	input_data: Option<Vec<u8>>,
 	memory: sp_sandbox::Memory,
-	gas_meter: &'a mut GasMeter<E::T>,
 	trap_reason: Option<TrapReason>,
 }
 
@@ -332,13 +359,11 @@ where
 		ext: &'a mut E,
 		input_data: Vec<u8>,
 		memory: sp_sandbox::Memory,
-		gas_meter: &'a mut GasMeter<E::T>,
 	) -> Self {
 		Runtime {
 			ext,
 			input_data: Some(input_data),
 			memory,
-			gas_meter,
 			trap_reason: None,
 		}
 	}
@@ -422,21 +447,16 @@ where
 	/// Charge the gas meter with the specified token.
 	///
 	/// Returns `Err(HostError)` if there is not enough gas.
-	pub fn charge_gas<Tok>(&mut self, token: Tok) -> Result<ChargedAmount, DispatchError>
-	where
-		Tok: Token<E::T, Metadata=HostFnWeights<E::T>>,
-	{
-		self.gas_meter.charge(&self.ext.schedule().host_fn_weights, token)
+	pub fn charge_gas(&mut self, costs: RuntimeCosts) -> Result<ChargedAmount, DispatchError> {
+		let token = costs.token(&self.ext.schedule().host_fn_weights);
+		self.ext.gas_meter().charge(token)
 	}
 
 	/// Correct previously charged gas amount.
-	pub fn adjust_gas<Tok>(&mut self, charged_amount: ChargedAmount, adjusted_amount: Tok)
-	where
-		Tok: Token<E::T, Metadata=HostFnWeights<E::T>>,
-	{
-		self.gas_meter.adjust_gas(
+	pub fn adjust_gas(&mut self, charged_amount: ChargedAmount, adjusted_amount: RuntimeCosts) {
+		let adjusted_amount = adjusted_amount.token(&self.ext.schedule().host_fn_weights);
+		self.ext.gas_meter().adjust_gas(
 			charged_amount,
-			&self.ext.schedule().host_fn_weights,
 			adjusted_amount,
 		);
 	}
@@ -490,11 +510,11 @@ where
 	pub fn read_sandbox_memory_as<D: Decode>(&mut self, ptr: u32, len: u32)
 	-> Result<D, DispatchError>
 	{
-		let amount = self.charge_gas(RuntimeToken::CopyIn(len))?;
+		let amount = self.charge_gas(RuntimeCosts::CopyIn(len))?;
 		let buf = self.read_sandbox_memory(ptr, len)?;
 		let decoded = D::decode_all(&mut &buf[..])
 			.map_err(|_| DispatchError::from(Error::<E::T>::DecodingFailed))?;
-		self.gas_meter.refund(amount);
+		self.ext.gas_meter().refund(amount);
 		Ok(decoded)
 	}
 
@@ -523,7 +543,7 @@ where
 		out_len_ptr: u32,
 		buf: &[u8],
 		allow_skip: bool,
-		create_token: impl FnOnce(u32) -> Option<RuntimeToken>,
+		create_token: impl FnOnce(u32) -> Option<RuntimeCosts>,
 	) -> Result<(), DispatchError>
 	{
 		if allow_skip && out_ptr == u32::max_value() {
@@ -537,8 +557,8 @@ where
 			Err(Error::<E::T>::OutputBufferTooSmall)?
 		}
 
-		if let Some(token) = create_token(buf_len) {
-			self.charge_gas(token)?;
+		if let Some(costs) = create_token(buf_len) {
+			self.charge_gas(costs)?;
 		}
 
 		self.memory.set(out_ptr, buf).and_then(|_| {
@@ -649,7 +669,8 @@ define_env!(Env, <E: Ext>,
 	[seal0] gas(ctx, amount: u32) => {
 		let mut protege = crate::env_trace::Gas::default();
 		let _guard = EnvTraceGuard::new(&protege);
-		ctx.charge_gas(RuntimeToken::MeteringBlock(amount))?;
+        
+		ctx.charge_gas(RuntimeCosts::MeteringBlock(amount))?;
 
 		protege.set_amount(Some(amount));
 		Ok(())
@@ -674,7 +695,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealSetStorage::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::SetStorage(value_len))?;
+		ctx.charge_gas(RuntimeCosts::SetStorage(value_len))?;
 		if value_len > ctx.ext.max_value_size() {
 			Err(Error::<E::T>::ValueTooLarge)?;
 		}
@@ -697,7 +718,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealClearStorage::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::ClearStorage)?;
+		ctx.charge_gas(RuntimeCosts::ClearStorage)?;
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
 		protege.set_key(Some(key.to_vec().into()));
@@ -721,14 +742,14 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealGetStorage::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::GetStorageBase)?;
+		ctx.charge_gas(RuntimeCosts::GetStorageBase)?;
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
 		protege.set_key(Some(key.to_vec().into()));
 
 		if let Some(value) = ctx.ext.get_storage(&key) {
 			ctx.write_sandbox_output(out_ptr, out_len_ptr, &value, false, |len| {
-				Some(RuntimeToken::GetStorageCopyOut(len))
+				Some(RuntimeCosts::GetStorageCopyOut(len))
 			})?;
 			protege.set_output(Some(value.into()));
 			Ok(ReturnCode::Success)
@@ -762,7 +783,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealTransfer::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Transfer)?;
+		ctx.charge_gas(RuntimeCosts::Transfer)?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(account_ptr, account_len)?;
 		protege.set_account(Some(callee.encode().into()));
@@ -827,7 +848,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealCall::new(gas);
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::CallBase(input_data_len))?;
+		ctx.charge_gas(RuntimeCosts::CallBase(input_data_len))?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(callee_ptr, callee_len)?;
 		protege.set_callee(Some(callee.encode().into()));
@@ -839,39 +860,21 @@ define_env!(Env, <E: Ext>,
 		protege.set_input(Some(input_data.clone().into()));
 
 		if value > 0u32.into() {
-			ctx.charge_gas(RuntimeToken::CallSurchargeTransfer)?;
+			ctx.charge_gas(RuntimeCosts::CallSurchargeTransfer)?;
 		}
 		let charged = ctx.charge_gas(
-			RuntimeToken::CallSurchargeCodeSize(<E::T as Config>::MaxCodeSize::get())
+			RuntimeCosts::CallSurchargeCodeSize(<E::T as Config>::Schedule::get().limits.code_len)
 		)?;
-		let nested_gas_limit = if gas == 0 {
-			ctx.gas_meter.gas_left()
-		} else {
-			gas.saturated_into()
-		};
 		let ext = &mut ctx.ext;
-		let call_outcome = ctx.gas_meter.with_nested(nested_gas_limit, |nested_meter| {
-			match nested_meter {
-				Some(nested_meter) => {
-					ext.call(
-						&callee,
-						value,
-						nested_meter,
-						input_data,
-					)
-				}
-				// there is not enough gas to allocate for the nested call.
-				None => Err((Error::<<E as Ext>::T>::OutOfGas.into(), 0)),
-			}
-		});
+		let call_outcome = ext.call(gas, callee, value, input_data);
 		let code_len = match &call_outcome {
 			Ok((_, len)) => len,
 			Err((_, len)) => len,
 		};
-		ctx.adjust_gas(charged, RuntimeToken::CallSurchargeCodeSize(*code_len));
+		ctx.adjust_gas(charged, RuntimeCosts::CallSurchargeCodeSize(*code_len));
 		if let Ok((output, _)) = &call_outcome {
 			ctx.write_sandbox_output(output_ptr, output_len_ptr, &output.data, true, |len| {
-				Some(RuntimeToken::CallCopyOut(len))
+				Some(RuntimeCosts::CallCopyOut(len))
 			})?;
 			protege.set_output(Some(output.data.clone().into()));
 		}
@@ -947,7 +950,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealInstantiate::new(gas);
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::InstantiateBase {input_data_len, salt_len})?;
+		ctx.charge_gas(RuntimeCosts::InstantiateBase {input_data_len, salt_len})?;
 		let code_hash: CodeHash<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(code_hash_ptr, code_hash_len)?;
 		protege.set_code_hash(Some(code_hash.encode().into()));
@@ -961,7 +964,9 @@ define_env!(Env, <E: Ext>,
 		let salt = ctx.read_sandbox_memory(salt_ptr, salt_len)?;
 		protege.set_salt(Some(salt.clone().into()));
 		let charged = ctx.charge_gas(
-			RuntimeToken::InstantiateSurchargeCodeSize(<E::T as Config>::MaxCodeSize::get())
+			RuntimeCosts::InstantiateSurchargeCodeSize(
+				<E::T as Config>::Schedule::get().limits.code_len
+			)
 		)?;
 
 		let nested_gas_limit = if gas == 0 {
@@ -970,26 +975,12 @@ define_env!(Env, <E: Ext>,
 			gas.saturated_into()
 		};
 		let ext = &mut ctx.ext;
-		let instantiate_outcome = ctx.gas_meter.with_nested(nested_gas_limit, |nested_meter| {
-			match nested_meter {
-				Some(nested_meter) => {
-					ext.instantiate(
-						code_hash,
-						value,
-						nested_meter,
-						input_data,
-						&salt,
-					)
-				}
-				// there is not enough gas to allocate for the nested call.
-				None => Err((Error::<<E as Ext>::T>::OutOfGas.into(), 0)),
-			}
-		});
+		let instantiate_outcome = ext.instantiate(gas, code_hash, value, input_data, &salt);
 		let code_len = match &instantiate_outcome {
 			Ok((_, _, code_len)) => code_len,
 			Err((_, code_len)) => code_len,
 		};
-		ctx.adjust_gas(charged, RuntimeToken::InstantiateSurchargeCodeSize(*code_len));
+		ctx.adjust_gas(charged, RuntimeCosts::InstantiateSurchargeCodeSize(*code_len));
 		if let Ok((address, output, _)) = &instantiate_outcome {
 			if !output.flags.contains(ReturnFlags::REVERT) {
 				ctx.write_sandbox_output(
@@ -997,7 +988,7 @@ define_env!(Env, <E: Ext>,
 				)?;
 			}
 			ctx.write_sandbox_output(output_ptr, output_len_ptr, &output.data, true, |len| {
-				Some(RuntimeToken::InstantiateCopyOut(len))
+				Some(RuntimeCosts::InstantiateCopyOut(len))
 			})?;
 			protege.set_output(Some(output.data.clone().into()));
 			protege.set_address(Some(address.encode().into()));
@@ -1036,19 +1027,21 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealTerminate::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Terminate)?;
+		ctx.charge_gas(RuntimeCosts::Terminate)?;
 		let beneficiary: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(beneficiary_ptr, beneficiary_len)?;
 		protege.set_beneficiary(Some(beneficiary.encode().into()));
 
 		let charged = ctx.charge_gas(
-			RuntimeToken::TerminateSurchargeCodeSize(<E::T as Config>::MaxCodeSize::get())
+			RuntimeCosts::TerminateSurchargeCodeSize(
+				<E::T as Config>::Schedule::get().limits.code_len
+			)
 		)?;
 		let (result, code_len) = match ctx.ext.terminate(&beneficiary) {
 			Ok(len) => (Ok(()), len),
 			Err((err, len)) => (Err(err), len),
 		};
-		ctx.adjust_gas(charged, RuntimeToken::TerminateSurchargeCodeSize(code_len));
+		ctx.adjust_gas(charged, RuntimeCosts::TerminateSurchargeCodeSize(code_len));
 		result?;
 		Err(TrapReason::Termination)
 	},
@@ -1067,11 +1060,11 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealInput::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::InputBase)?;
+		ctx.charge_gas(RuntimeCosts::InputBase)?;
 		if let Some(input) = ctx.input_data.take() {
 			protege.set_buf(Some(input.clone().into()));
 			ctx.write_sandbox_output(out_ptr, out_len_ptr, &input, false, |len| {
-				Some(RuntimeToken::InputCopyOut(len))
+				Some(RuntimeCosts::InputCopyOut(len))
 			})?;
 			Ok(())
 		} else {
@@ -1100,7 +1093,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealReturn::new(flags);
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Return(data_len))?;
+		ctx.charge_gas(RuntimeCosts::Return(data_len))?;
 		let data = ctx.read_sandbox_memory(data_ptr, data_len)?;
 		protege.set_data(Some(data.clone().into()));
 
@@ -1124,7 +1117,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealCaller::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Caller)?;
+		ctx.charge_gas(RuntimeCosts::Caller)?;
 		protege.set_out(Some(ctx.ext.caller().encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1142,7 +1135,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealAddress::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Address)?;
+		ctx.charge_gas(RuntimeCosts::Address)?;
 		protege.set_out(Some(ctx.ext.address().encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1167,7 +1160,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealWeightToFee::new(gas);
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::WeightToFee)?;
+		ctx.charge_gas(RuntimeCosts::WeightToFee)?;
 		protege.set_out(Some(ctx.ext.get_weight_price(gas).saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1187,11 +1180,12 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealGasLeft::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::GasLeft)?;
-		protege.set_out(Some(ctx.gas_meter.gas_left().encode().clone().into()));
+		ctx.charge_gas(RuntimeCosts::GasLeft)?;
+		let gas_left = &ctx.ext.gas_meter().gas_left().encode();
+		protege.set_out(Some(gas_left.into()));
 
 		Ok(ctx.write_sandbox_output(
-			out_ptr, out_len_ptr, &ctx.gas_meter.gas_left().encode(), false, already_charged
+			out_ptr, out_len_ptr, &gas_left, false, already_charged,
 		)?)
 	},
 
@@ -1207,7 +1201,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealBalance::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Balance)?;
+		ctx.charge_gas(RuntimeCosts::Balance)?;
 		protege.set_out(Some(ctx.ext.balance().encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1227,7 +1221,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealValueTransferred::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::ValueTransferred)?;
+		ctx.charge_gas(RuntimeCosts::ValueTransferred)?;
 		protege.set_out(Some(ctx.ext.value_transferred().encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1251,7 +1245,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealRandom::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Random)?;
+		ctx.charge_gas(RuntimeCosts::Random)?;
 		if subject_len > ctx.ext.schedule().limits.subject_len {
 			Err(Error::<E::T>::RandomSubjectTooLong)?;
 		}
@@ -1292,7 +1286,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealRandomV1::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Random)?;
+		ctx.charge_gas(RuntimeCosts::Random)?;
 		if subject_len > ctx.ext.schedule().limits.subject_len {
 			Err(Error::<E::T>::RandomSubjectTooLong)?;
 		}
@@ -1319,7 +1313,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealNow::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::Now)?;
+		ctx.charge_gas(RuntimeCosts::Now)?;
 		protege.set_out(Some(ctx.ext.now().encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1334,7 +1328,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealMinimumBalance::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::MinimumBalance)?;
+		ctx.charge_gas(RuntimeCosts::MinimumBalance)?;
 		protege.set_out(Some(ctx.ext.minimum_balance().saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1361,7 +1355,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealTombstoneDeposit::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::TombstoneDeposit)?;
+		ctx.charge_gas(RuntimeCosts::TombstoneDeposit)?;
 		protege.set_out(Some(ctx.ext.tombstone_deposit().saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1414,7 +1408,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealRestoreTo::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::RestoreTo(delta_count))?;
+		ctx.charge_gas(RuntimeCosts::RestoreTo(delta_count))?;
 		let dest: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(dest_ptr, dest_len)?;
 		protege.set_dest(Some(dest.encode().into()));
@@ -1454,8 +1448,8 @@ define_env!(Env, <E: Ext>,
 		};
 		protege.set_delta(Some(delta.iter().map(|d| d.to_vec().into()).collect()));
 
-		let max_len = <E::T as Config>::MaxCodeSize::get();
-		let charged = ctx.charge_gas(RuntimeToken::RestoreToSurchargeCodeSize {
+		let max_len = <E::T as Config>::Schedule::get().limits.code_len;
+		let charged = ctx.charge_gas(RuntimeCosts::RestoreToSurchargeCodeSize {
 			caller_code: max_len,
 			tombstone_code: max_len,
 		})?;
@@ -1465,7 +1459,7 @@ define_env!(Env, <E: Ext>,
 			Ok((code, tomb)) => (Ok(()), code, tomb),
 			Err((err, code, tomb)) => (Err(err), code, tomb),
 		};
-		ctx.adjust_gas(charged, RuntimeToken::RestoreToSurchargeCodeSize {
+		ctx.adjust_gas(charged, RuntimeCosts::RestoreToSurchargeCodeSize {
 			caller_code,
 			tombstone_code,
 		});
@@ -1509,7 +1503,7 @@ define_env!(Env, <E: Ext>,
 		let num_topic = topics_len
 			.checked_div(sp_std::mem::size_of::<TopicOf<E::T>>() as u32)
 			.ok_or_else(|| "Zero sized topics are not allowed")?;
-		ctx.charge_gas(RuntimeToken::DepositEvent {
+		ctx.charge_gas(RuntimeCosts::DepositEvent {
 			num_topic,
 			len: data_len,
 		})?;
@@ -1558,7 +1552,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealSetRentAllowance::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::SetRentAllowance)?;
+		ctx.charge_gas(RuntimeCosts::SetRentAllowance)?;
 		let value: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(value_ptr, value_len)?;
 		protege.set_value(Some(value.saturated_into()));
@@ -1580,27 +1574,45 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealRentAllowance::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::RentAllowance)?;
+		ctx.charge_gas(RuntimeCosts::RentAllowance)?;
+		let rent_allowance = ctx.ext.rent_allowance().encode();
 		protege.set_out(Some(ctx.ext.rent_allowance().saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
-			out_ptr, out_len_ptr, &ctx.ext.rent_allowance().encode(), false, already_charged
+			out_ptr, out_len_ptr, &rent_allowance, false, already_charged
 		)?)
 	},
 
-	// Prints utf8 encoded string from the data buffer.
-	// Only available on `--dev` chains.
-	// This function may be removed at any time, superseded by a more general contract debugging feature.
-	[seal0] seal_println(ctx, str_ptr: u32, str_len: u32) => {
+	// Emit a custom debug message.
+	//
+	// No newlines are added to the supplied message.
+	// Specifying invalid UTF-8 triggers a trap.
+	//
+	// This is a no-op if debug message recording is disabled which is always the case
+	// when the code is executing on-chain. The message is interpreted as UTF-8 and
+	// appended to the debug buffer which is then supplied to the calling RPC client.
+	//
+	// # Note
+	//
+	// Even though no action is taken when debug message recording is disabled there is still
+	// a non trivial overhead (and weight cost) associated with calling this function. Contract
+	// languages should remove calls to this function (either at runtime or compile time) when
+	// not being executed as an RPC. For example, they could allow users to disable logging
+	// through compile time flags (cargo features) for on-chain deployment. Additionally, the
+	// return value of this function can be cached in order to prevent further calls at runtime.
+	[seal0] seal_debug_message(ctx, str_ptr: u32, str_len: u32) -> ReturnCode => {
 		let mut protege = SealPrintln::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
-		if let Ok(utf8) = core::str::from_utf8(&data) {
-			log::info!(target: "runtime::contracts", "seal_println: {}", utf8);
-			protege.set_str(Some(utf8.to_string()));
+		if ctx.ext.append_debug_buffer("") {
+			let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
+			let msg = core::str::from_utf8(&data)
+				.map_err(|_| <Error<E::T>>::DebugMessageInvalidUTF8)?;
+			ctx.ext.append_debug_buffer(msg);
+			protege.set_str(Some(msg.to_string()));
+			return Ok(ReturnCode::Success);
 		}
-		Ok(())
+		Ok(ReturnCode::LoggingDisabled)
 	},
 
 	// Stores the current block number of the current contract into the supplied buffer.
@@ -1613,7 +1625,7 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealBlockNumber::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::BlockNumber)?;
+		ctx.charge_gas(RuntimeCosts::BlockNumber)?;
 		protege.set_out(Some(ctx.ext.block_number().saturated_into::<u32>()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1645,13 +1657,13 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealHashSha256::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::HashSha256(input_len))?;
+		ctx.charge_gas(RuntimeCosts::HashSha256(input_len))?;
 		let (input, out) =
 			ctx.compute_hash_on_intermediate_buffer(sha2_256, input_ptr, input_len, output_ptr)?;
 		protege.set_input(Some(input.into()));
 		protege.set_out(Some(out.encode().into()));
 
-		Ok(())
+		Ok((input, out))
 	},
 
 	// Computes the KECCAK 256-bit hash on the given input buffer.
@@ -1678,13 +1690,13 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealHashKeccak256::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::HashKeccak256(input_len))?;
+		ctx.charge_gas(RuntimeCosts::HashKeccak256(input_len))?;
 		let (input, out) =
 			ctx.compute_hash_on_intermediate_buffer(keccak_256, input_ptr, input_len, output_ptr)?;
 		protege.set_input(Some(input.into()));
 		protege.set_out(Some(out.encode().into()));
 
-		Ok(())
+		Ok((input, out))
 	},
 
 	// Computes the BLAKE2 256-bit hash on the given input buffer.
@@ -1711,13 +1723,13 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealHashBlake256::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::HashBlake256(input_len))?;
+		ctx.charge_gas(RuntimeCosts::HashBlake256(input_len))?;
 		let (input, out) =
 			ctx.compute_hash_on_intermediate_buffer(blake2_256, input_ptr, input_len, output_ptr)?;
 		protege.set_input(Some(input.into()));
 		protege.set_out(Some(out.encode().into()));
 
-		Ok(())
+		Ok((input, out))
 	},
 
 	// Computes the BLAKE2 128-bit hash on the given input buffer.
@@ -1744,13 +1756,13 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealHashBlake128::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
-		ctx.charge_gas(RuntimeToken::HashBlake128(input_len))?;
+		ctx.charge_gas(RuntimeCosts::HashBlake128(input_len))?;
 		let (input, out) =
 			ctx.compute_hash_on_intermediate_buffer(blake2_128, input_ptr, input_len, output_ptr)?;
 		protege.set_input(Some(input.into()));
 		protege.set_out(Some(out.encode().into()));
 
-		Ok(())
+		Ok((input, out))
 	},
 
 	// Call into the chain extension provided by the chain if any.
@@ -1801,7 +1813,7 @@ define_env!(Env, <E: Ext>,
 	// started execution. Any change to those values that happens due to actions of the
 	// current call or contracts that are called by this contract are not considered.
 	[seal0] seal_rent_params(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		ctx.charge_gas(RuntimeToken::RentParams)?;
+		ctx.charge_gas(RuntimeCosts::RentParams)?;
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.rent_params().encode(), false, already_charged
 		)?)
