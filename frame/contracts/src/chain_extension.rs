@@ -133,6 +133,7 @@ impl<C: Config> ChainExtension<C> for () {
 }
 
 /// Determines the exit behaviour and return value of a chain extension.
+#[derive(Clone, sp_runtime::RuntimeDebug)]
 pub enum RetVal {
 	/// The chain extensions returns the supplied value to its calling contract.
 	Converging(u32),

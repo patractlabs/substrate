@@ -86,7 +86,7 @@ pub struct NestedRuntime {
 	/// Who call the current contract
     caller: AccountId32,
 	/// The account of the current contract
-    self_account: Option<AccountId32>,
+    self_account: AccountId32,
 	/// The input selector
     selector: Option<HexVec>,
 	/// The input arguments
@@ -127,7 +127,7 @@ impl fmt::Debug for NestedRuntime {
 		}
 
 		debug_struct.field("caller", &self.caller)
-			.field("self_account", &format_args!("{}", print_option(&self.self_account)))
+			.field("self_account", &self.self_account)
 			.field("selector", &format_args!("{}", print_option(&self.selector)))
 			.field("args", &format_args!("{}", print_option(&self.args)))
 			.field("value", &self.value)
@@ -159,7 +159,7 @@ impl NestedRuntime {
     pub fn new(
         depth: usize,
         caller: AccountId32,
-        self_account: Option<AccountId32>,
+        self_account: AccountId32,
         selector: Option<HexVec>,
         args: Option<HexVec>,
         value: u128,
@@ -201,10 +201,6 @@ impl NestedRuntime {
 
     pub fn set_gas_left(&mut self, left: Weight) {
         self.gas_left = left;
-    }
-
-    pub fn set_self_account(&mut self, self_account: Vec<u8>) {
-        self.self_account = Some(unchecked_into_account_id32(self_account));
     }
 
     pub fn env_trace_push(&mut self, host_func: EnvTrace) {
@@ -264,7 +260,7 @@ fn unchecked_into_account_id32(raw_vec: Vec<u8>)-> AccountId32{
 /// Execute the given closure within a nested execution context.
 pub fn with_nested_runtime<F, R>(
     input_data: Vec<u8>,
-    dest: Option<Vec<u8>>,
+    dest: Vec<u8>,
     gas_left: Weight,
     value: u128,
     depth: usize,
@@ -282,16 +278,11 @@ pub fn with_nested_runtime<F, R>(
     } else {
         (None, None)
     };
-    let dest = if let Some(account) = dest {
-        Some(unchecked_into_account_id32(account))
-    } else {
-        None
-    };
 
     let mut nest = NestedRuntime::new(
         depth,
         unchecked_into_account_id32(self_account),
-        dest,
+        unchecked_into_account_id32(dest),
         selector,
         args,
         value,

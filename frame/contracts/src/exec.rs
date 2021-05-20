@@ -26,7 +26,7 @@ use sp_std::{
 	marker::PhantomData,
 	mem,
 };
-use sp_runtime::{Perbill, traits::{Bounded, Zero, Convert, Saturating, SaturatedConversion}};
+use sp_runtime::{Perbill, traits::{Convert, Saturating, SaturatedConversion}};
 use frame_support::{
 	dispatch::{DispatchResult, DispatchError},
 	storage::{with_transaction, TransactionOutcome},
@@ -34,10 +34,11 @@ use frame_support::{
 	weights::Weight,
 	ensure,
 };
-use pallet_contracts_primitives::{ExecReturnValue, ReturnFlags};
-use codec::Encode;
-use crate::trace_runtime::{with_nested_runtime, with_runtime};
+use pallet_contracts_primitives::{ExecReturnValue};
 use smallvec::{SmallVec, Array};
+
+use codec::Encode;
+use crate::trace_runtime::with_nested_runtime;
 
 pub type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 pub type MomentOf<T> = <<T as Config>::Time as Time>::Moment;
@@ -331,9 +332,6 @@ pub trait Ext: sealing::Sealed {
 	///
 	/// Returns `true` if debug message recording is enabled. Otherwise `false` is returned.
 	fn append_debug_buffer(&mut self, msg: &str) -> bool;
-
-	/// Returns the depth for current execution
-	fn get_depth(&self) -> usize;
 }
 
 /// Describes the different functions that can be exported by an [`Executable`].
@@ -808,6 +806,13 @@ where
 		executable: E,
 		input_data: Vec<u8>
 	) -> Result<(ExecReturnValue, u32), (ExecError, u32)> {
+		let input_data_copy = input_data.clone();
+		let dest = self.address().encode();
+		let value = self.value_transferred().saturated_into::<u128>();
+		let gas_left = self.top_frame().nested_meter.gas_left();
+		let depth = self.frames.len() + 1;
+		let sender = self.caller().encode();
+
 		let entry_point = self.top_frame().entry_point;
 		let do_transaction = || {
 			// Cache the value before calling into the constructor because that
@@ -862,7 +867,17 @@ where
 		// This allows for roll back on error. Changes to the cached contract_info are
 		// comitted or rolled back when popping the frame.
 		let (success, output) = with_transaction(|| {
-			let output = do_transaction();
+			let output = with_nested_runtime(
+				input_data_copy,
+				dest,
+				gas_left,
+				value,
+				depth,
+				sender,
+				|| {
+					do_transaction()
+				});
+			// let output = do_transaction();
 			match output {
 				Ok((ref result, _)) if result.is_success() => {
 					TransactionOutcome::Commit((true, output))
@@ -1262,10 +1277,6 @@ where
 		} else {
 			false
 		}
-	}
-
-	fn get_depth(&self) -> usize {
-		self.ctx.depth
 	}
 }
 

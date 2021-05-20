@@ -219,7 +219,7 @@ where
 		let result = sp_sandbox::Instance::new(&code, &imports, &mut runtime)
 			.and_then(|mut instance| instance.invoke(function.identifier(), &[], &mut runtime));
 		let ext_result = runtime.to_execution_result(&result);
-		with_runtime(|r| r.set_gas_left(gas_meter.gas_left()));
+		with_runtime(|r| r.set_gas_left(ext.gas_meter().gas_left()));
 
 		let ext_result_record = into_exec_result_trace(&ext_result);
 
@@ -467,9 +467,6 @@ mod tests {
 		}
 		fn gas_meter(&mut self) -> &mut GasMeter<Self::T> {
 			&mut self.gas_meter
-		}
-		fn get_depth(&self) -> usize {
-			unimplemented!()
 		}
 		fn append_debug_buffer(&mut self, msg: &str) -> bool {
 			self.debug_buffer.extend(msg.as_bytes());

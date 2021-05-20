@@ -50,7 +50,7 @@ use crate::trace_runtime::with_runtime;
 /// match return codes. Instead, contracts should prepare for unknown variants and deal with
 /// those errors gracefuly in order to be forward compatible.
 #[repr(u32)]
-#[derive(Clone, RuntimeDebug)]
+#[derive(Clone, Copy, RuntimeDebug)]
 pub enum ReturnCode {
 	/// API call successful.
 	Success = 0,
@@ -701,12 +701,14 @@ define_env!(Env, <E: Ext>,
 		}
 		let mut key: StorageKey = [0; 32];
 		ctx.read_sandbox_memory_into_buf(key_ptr, &mut key)?;
+
 		protege.set_key(Some(key.to_vec().into()));
 
-		let value = ctx.read_sandbox_memory(value_ptr, value_len)?;
-		protege.set_value(Some(value.clone().into()));
+		let value = Some(ctx.read_sandbox_memory(value_ptr, value_len)?);
 
-		ctx.ext.set_storage(key, Some(value)).map_err(Into::into)
+		protege.set_value(value.clone().map(Into::into));
+
+		ctx.ext.set_storage(key, value).map_err(Into::into)
 	},
 
 	// Clear the value at the given key in the contract storage.
@@ -879,11 +881,11 @@ define_env!(Env, <E: Ext>,
 			protege.set_output(Some(output.data.clone().into()));
 		}
 
-		let return_code = Runtime::<E>::exec_into_return_code(call_outcome.map(|r| r.0).map_err(|r| r.0));
-		if let Ok(code) = &return_code{
-			protege.set_result(Some(code.clone()));
-		}
-		Ok(return_code?)
+		let return_code = Runtime::<E>::exec_into_return_code(call_outcome.map(|r| r.0).map_err(|r| r.0))?;
+
+		protege.set_result(Some(return_code));
+
+		Ok(return_code)
 	},
 
 	// Instantiate a contract with the specified code hash.
@@ -953,27 +955,26 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeCosts::InstantiateBase {input_data_len, salt_len})?;
 		let code_hash: CodeHash<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(code_hash_ptr, code_hash_len)?;
+
 		protege.set_code_hash(Some(code_hash.encode().into()));
 
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr, value_len)?;
+
 		protege.set_value(Some(value.saturated_into()));
 
 		let input_data = ctx.read_sandbox_memory(input_data_ptr, input_data_len)?;
+
 		protege.set_input(Some(input_data.clone().into()));
 
 		let salt = ctx.read_sandbox_memory(salt_ptr, salt_len)?;
+
 		protege.set_salt(Some(salt.clone().into()));
+
 		let charged = ctx.charge_gas(
 			RuntimeCosts::InstantiateSurchargeCodeSize(
 				<E::T as Config>::Schedule::get().limits.code_len
 			)
 		)?;
-
-		let nested_gas_limit = if gas == 0 {
-			ctx.gas_meter.gas_left()
-		} else {
-			gas.saturated_into()
-		};
 		let ext = &mut ctx.ext;
 		let instantiate_outcome = ext.instantiate(gas, code_hash, value, input_data, &salt);
 		let code_len = match &instantiate_outcome {
@@ -996,11 +997,11 @@ define_env!(Env, <E: Ext>,
 
 		let return_code = Runtime::<E>::exec_into_return_code(
 			instantiate_outcome.map(|(_, retval, _)| retval).map_err(|(err, _)| err)
-		);
-		if let Ok(code) = &return_code{
-			protege.set_result(Some(code.clone()));
-		}
-		Ok(return_code?)
+		)?;
+
+		protege.set_result(Some(return_code));
+
+		Ok(return_code)
 	},
 
 	// Remove the calling account and transfer remaining balance.
@@ -1030,6 +1031,7 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeCosts::Terminate)?;
 		let beneficiary: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(beneficiary_ptr, beneficiary_len)?;
+
 		protege.set_beneficiary(Some(beneficiary.encode().into()));
 
 		let charged = ctx.charge_gas(
@@ -1062,10 +1064,12 @@ define_env!(Env, <E: Ext>,
 
 		ctx.charge_gas(RuntimeCosts::InputBase)?;
 		if let Some(input) = ctx.input_data.take() {
-			protege.set_buf(Some(input.clone().into()));
 			ctx.write_sandbox_output(out_ptr, out_len_ptr, &input, false, |len| {
 				Some(RuntimeCosts::InputCopyOut(len))
 			})?;
+
+			protege.set_buf(Some(input.clone().into()));
+
 			Ok(())
 		} else {
 			Err(Error::<E::T>::InputAlreadyRead.into())
@@ -1118,6 +1122,7 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Caller)?;
+
 		protege.set_out(Some(ctx.ext.caller().encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1136,6 +1141,7 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Address)?;
+
 		protege.set_out(Some(ctx.ext.address().encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1161,6 +1167,7 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::WeightToFee)?;
+
 		protege.set_out(Some(ctx.ext.get_weight_price(gas).saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1182,7 +1189,8 @@ define_env!(Env, <E: Ext>,
 
 		ctx.charge_gas(RuntimeCosts::GasLeft)?;
 		let gas_left = &ctx.ext.gas_meter().gas_left().encode();
-		protege.set_out(Some(gas_left.into()));
+
+		protege.set_out(Some(ctx.ext.gas_meter().gas_left()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &gas_left, false, already_charged,
@@ -1202,7 +1210,8 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Balance)?;
-		protege.set_out(Some(ctx.ext.balance().encode().clone().into()));
+
+		protege.set_out(Some(ctx.ext.balance().saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.balance().encode(), false, already_charged
@@ -1222,7 +1231,8 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::ValueTransferred)?;
-		protege.set_out(Some(ctx.ext.value_transferred().encode().clone().into()));
+
+		protege.set_out(Some(ctx.ext.value_transferred().saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.value_transferred().encode(), false, already_charged
@@ -1314,6 +1324,7 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Now)?;
+
 		protege.set_out(Some(ctx.ext.now().encode().clone().into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1329,6 +1340,7 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::MinimumBalance)?;
+
 		protege.set_out(Some(ctx.ext.minimum_balance().saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1356,6 +1368,7 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::TombstoneDeposit)?;
+
 		protege.set_out(Some(ctx.ext.tombstone_deposit().saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1411,14 +1424,17 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeCosts::RestoreTo(delta_count))?;
 		let dest: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(dest_ptr, dest_len)?;
+
 		protege.set_dest(Some(dest.encode().into()));
 
 		let code_hash: CodeHash<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(code_hash_ptr, code_hash_len)?;
+
 		protege.set_code_hash(Some(code_hash.encode().clone().into()));
 
 		let rent_allowance: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(rent_allowance_ptr, rent_allowance_len)?;
+
 		protege.set_rent_allowance(Some(rent_allowance.saturated_into()));
 
 		let delta = {
@@ -1446,6 +1462,7 @@ define_env!(Env, <E: Ext>,
 
 			delta
 		};
+
 		protege.set_delta(Some(delta.iter().map(|d| d.to_vec().into()).collect()));
 
 		let max_len = <E::T as Config>::Schedule::get().limits.code_len;
@@ -1515,6 +1532,7 @@ define_env!(Env, <E: Ext>,
 			0 => Vec::new(),
 			_ => ctx.read_sandbox_memory_as(topics_ptr, topics_len)?,
 		};
+
 		protege.set_topics(
 			Some(
 				topics.iter()
@@ -1536,6 +1554,7 @@ define_env!(Env, <E: Ext>,
 		}
 
 		let event_data = ctx.read_sandbox_memory(data_ptr, data_len)?;
+
 		protege.set_data(Some(event_data.clone().into()));
 
 		ctx.ext.deposit_event(topics, event_data);
@@ -1555,6 +1574,7 @@ define_env!(Env, <E: Ext>,
 		ctx.charge_gas(RuntimeCosts::SetRentAllowance)?;
 		let value: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(value_ptr, value_len)?;
+
 		protege.set_value(Some(value.saturated_into()));
 
 		ctx.ext.set_rent_allowance(value);
@@ -1576,6 +1596,7 @@ define_env!(Env, <E: Ext>,
 
 		ctx.charge_gas(RuntimeCosts::RentAllowance)?;
 		let rent_allowance = ctx.ext.rent_allowance().encode();
+
 		protege.set_out(Some(ctx.ext.rent_allowance().saturated_into()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1604,12 +1625,15 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealPrintln::default();
 		let _guard = EnvTraceGuard::new(&protege);
 
+		ctx.charge_gas(RuntimeCosts::DebugMessage)?;
 		if ctx.ext.append_debug_buffer("") {
 			let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
 			let msg = core::str::from_utf8(&data)
 				.map_err(|_| <Error<E::T>>::DebugMessageInvalidUTF8)?;
 			ctx.ext.append_debug_buffer(msg);
+
 			protege.set_str(Some(msg.to_string()));
+
 			return Ok(ReturnCode::Success);
 		}
 		Ok(ReturnCode::LoggingDisabled)
@@ -1626,6 +1650,7 @@ define_env!(Env, <E: Ext>,
 		let _guard = EnvTraceGuard::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::BlockNumber)?;
+
 		protege.set_out(Some(ctx.ext.block_number().saturated_into::<u32>()));
 
 		Ok(ctx.write_sandbox_output(
@@ -1663,7 +1688,7 @@ define_env!(Env, <E: Ext>,
 		protege.set_input(Some(input.into()));
 		protege.set_out(Some(out.encode().into()));
 
-		Ok((input, out))
+		Ok(())
 	},
 
 	// Computes the KECCAK 256-bit hash on the given input buffer.
@@ -1696,7 +1721,7 @@ define_env!(Env, <E: Ext>,
 		protege.set_input(Some(input.into()));
 		protege.set_out(Some(out.encode().into()));
 
-		Ok((input, out))
+		Ok(())
 	},
 
 	// Computes the BLAKE2 256-bit hash on the given input buffer.
@@ -1729,7 +1754,7 @@ define_env!(Env, <E: Ext>,
 		protege.set_input(Some(input.into()));
 		protege.set_out(Some(out.encode().into()));
 
-		Ok((input, out))
+		Ok(())
 	},
 
 	// Computes the BLAKE2 128-bit hash on the given input buffer.
@@ -1762,7 +1787,7 @@ define_env!(Env, <E: Ext>,
 		protege.set_input(Some(input.into()));
 		protege.set_out(Some(out.encode().into()));
 
-		Ok((input, out))
+		Ok(())
 	},
 
 	// Call into the chain extension provided by the chain if any.
@@ -1784,12 +1809,22 @@ define_env!(Env, <E: Ext>,
 		output_ptr: u32,
 		output_len_ptr: u32
 	) -> u32 => {
+		let mut protege = SealChainExtension::default();
+		let _guard = EnvTraceGuard::new(&protege);
+
 		use crate::chain_extension::{ChainExtension, Environment, RetVal};
 		if <E::T as Config>::ChainExtension::enabled() == false {
 			Err(Error::<E::T>::NoChainExtension)?;
 		}
+
+		protege.set_func_id(Some(func_id));
+
 		let env = Environment::new(ctx, input_ptr, input_len, output_ptr, output_len_ptr);
-		match <E::T as Config>::ChainExtension::call(func_id, env)? {
+
+		let ret = <E::T as Config>::ChainExtension::call(func_id, env)?;
+		protege.set_ret_val(Some(ret.clone()));
+
+		match ret {
 			RetVal::Converging(val) => Ok(val),
 			RetVal::Diverging{flags, data} => Err(TrapReason::Return(ReturnData {
 				flags: flags.bits(),
@@ -1813,7 +1848,13 @@ define_env!(Env, <E: Ext>,
 	// started execution. Any change to those values that happens due to actions of the
 	// current call or contracts that are called by this contract are not considered.
 	[seal0] seal_rent_params(ctx, out_ptr: u32, out_len_ptr: u32) => {
+		let mut protege = SealRentParams::default();
+		let _guard = EnvTraceGuard::new(&protege);
+
 		ctx.charge_gas(RuntimeCosts::RentParams)?;
+
+		protege.set_params(Some(ctx.ext.rent_params().encode().into()));
+
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.rent_params().encode(), false, already_charged
 		)?)

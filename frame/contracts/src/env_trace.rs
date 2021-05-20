@@ -7,6 +7,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::trace_runtime::with_runtime;
 use crate::wasm::ReturnCode;
+use crate::chain_extension::RetVal;
 
 /// The vector that can be printed as "0x1234"
 #[derive(Clone)]
@@ -216,19 +217,19 @@ impl SealWeightToFee {
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealGasLeft {
     #[set]
-    out: Option<HexVec>,
+    out: Option<u64>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealBalance {
     #[set]
-    out: Option<HexVec>,
+    out: Option<u128>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealValueTransferred {
     #[set]
-    out: Option<HexVec>,
+    out: Option<u128>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
@@ -343,6 +344,20 @@ pub struct SealHashBlake128 {
     out: Option<HexVec>,
 }
 
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+pub struct SealChainExtension {
+    #[set]
+    func_id: Option<u32>,
+    #[set]
+    ret_val: Option<RetVal>
+}
+
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+pub struct SealRentParams {
+    #[set]
+    params: Option<HexVec>,
+}
+
 #[cfg_attr(feature = "std", derive(Derivative))]
 #[derivative(Debug)]
 pub enum EnvTrace {
@@ -408,4 +423,8 @@ pub enum EnvTrace {
     SealHashBlake256(SealHashBlake256),
     #[derivative(Debug = "transparent")]
     SealHashBlake128(SealHashBlake128),
+    #[derivative(Debug = "transparent")]
+    SealChainExtension(SealChainExtension),
+    #[derivative(Debug = "transparent")]
+    SealRentParams(SealRentParams),
 }
