@@ -46,7 +46,8 @@ use sp_runtime::{
 /// The `current_*` fields do **not** consider changes to the code's refcount made during
 /// the currently running call.
 #[derive(codec::Encode, DefaultNoBound)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+// #[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(feature = "std", derive(frame_support::DebugNoBound, PartialEq, Clone))]
 pub struct RentStatus<T: Config> {
 	/// Required deposit assuming that this contract is the only user of its code.
 	pub max_deposit: BalanceOf<T>,

@@ -111,7 +111,7 @@ macro_rules! unmarshall_then_body_then_marshall {
 		});
 		let r = body().map_err(|reason| {
 			$ctx.set_trap_reason(reason.clone());
-			$crate::trace_runtime::with_runtime(|r| r.set_trap_reason(reason));
+			$crate::trace_runtime::with_runtime::<E::T, _, _>(|r| r.set_trap_reason(reason));
 			sp_sandbox::HostError
 		})?;
 		return Ok(sp_sandbox::ReturnValue::Value({ use $crate::wasm::env_def::ConvertibleToWasm; r.to_typed_value() }))
@@ -122,7 +122,32 @@ macro_rules! unmarshall_then_body_then_marshall {
 		});
 		body().map_err(|reason| {
 			$ctx.set_trap_reason(reason.clone());
-			$crate::trace_runtime::with_runtime(|r| r.set_trap_reason(reason));
+			$crate::trace_runtime::with_runtime::<E::T, _, _>(|r| r.set_trap_reason(reason));
+			sp_sandbox::HostError
+		})?;
+		return Ok(sp_sandbox::ReturnValue::Unit)
+	})
+}
+#[allow(unused)]
+macro_rules! unmarshall_then_body_then_marshall_for_test {
+	( $args_iter:ident, $ctx:ident, ( $( $names:ident : $params:ty ),* ) -> $returns:ty => $body:tt ) => ({
+		let body = $crate::wasm::env_def::macros::constrain_closure::<
+			<$returns as $crate::wasm::env_def::ConvertibleToWasm>::NativeType, _
+		>(|| {
+			unmarshall_then_body!($body, $ctx, $args_iter, $( $names : $params ),*)
+		});
+		let r = body().map_err(|reason| {
+			$ctx.set_trap_reason(reason.clone());
+			sp_sandbox::HostError
+		})?;
+		return Ok(sp_sandbox::ReturnValue::Value({ use $crate::wasm::env_def::ConvertibleToWasm; r.to_typed_value() }))
+	});
+	( $args_iter:ident, $ctx:ident, ( $( $names:ident : $params:ty ),* ) => $body:tt ) => ({
+		let body = $crate::wasm::env_def::macros::constrain_closure::<(), _>(|| {
+			unmarshall_then_body!($body, $ctx, $args_iter, $( $names : $params ),*)
+		});
+		body().map_err(|reason| {
+			$ctx.set_trap_reason(reason.clone());
 			sp_sandbox::HostError
 		})?;
 		return Ok(sp_sandbox::ReturnValue::Unit)
@@ -274,7 +299,7 @@ mod tests {
 			args: &[sp_sandbox::Value],
 		) -> Result<ReturnValue, sp_sandbox::HostError> {
 			let mut args = args.iter();
-			unmarshall_then_body_then_marshall!(
+			unmarshall_then_body_then_marshall_for_test!(
 				args,
 				_ctx,
 				(a: u32, b: u32) -> u32 => {
@@ -302,7 +327,7 @@ mod tests {
 			args: &[sp_sandbox::Value],
 		) -> Result<ReturnValue, sp_sandbox::HostError> {
 			let mut args = args.iter();
-			unmarshall_then_body_then_marshall!(
+			unmarshall_then_body_then_marshall_for_test!(
 				args,
 				ctx,
 				(a: u32, b: u32) => {

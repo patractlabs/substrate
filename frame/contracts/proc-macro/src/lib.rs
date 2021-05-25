@@ -172,14 +172,62 @@ pub fn host_debug(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	output.into()
 }
 
+#[proc_macro_derive(HostDebugWithGeneric)]
+pub fn host_debug_with_generic(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+	let item_struct = parse_macro_input!(input as ItemStruct);
+	let ident = &item_struct.ident;
+	let ident_name = ident.to_string().to_snake_case();
+	let fields = &item_struct.fields;
+	let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
+
+	let output = if let Fields::Named(ref fields_name) = fields {
+		let get_self: Vec<_> = fields_name.named.iter().map(|field| {
+			let field_name = field.ident.as_ref().unwrap();
+			quote! {
+                &self.#field_name
+            }
+		}).collect();
+
+		quote! {
+            impl #impl_generics fmt::Debug for #ident #ty_generics #where_clause {
+                fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                    f.write_fmt(format_args!("{}({:?})", #ident_name,(#(#get_self),*)))
+                }
+            }
+        }
+	} else {
+		panic!("wrong struct type!");
+	};
+
+	output.into()
+}
+
 #[proc_macro_derive(Wrap)]
 pub fn wrap(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	let item_struct = parse_macro_input!(input as ItemStruct);
 	let ident = &item_struct.ident;
 	let wrapped_ident = Ident::new(&ident.to_string(), Span::call_site());
 	let output = quote! {
-		impl Wrapper for #ident {
-			fn wrap(&self) -> EnvTrace {
+		impl<C: Config> Wrapper<C> for #ident {
+			fn wrap(&self) -> EnvTrace<C> {
+        		EnvTrace::#wrapped_ident(self.clone())
+    		}
+		}
+	};
+	output.into()
+}
+
+#[proc_macro_derive(WrapWithGeneric)]
+pub fn wrap_with_generic(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+	let item_struct = parse_macro_input!(input as ItemStruct);
+	let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
+	let ident = &item_struct.ident;
+	let wrapped_ident = Ident::new(&ident.to_string(), Span::call_site());
+	// not a good choose, for Wrapper just need one generic and Self struct is not decided.
+	let ty_generics_copy = ty_generics.clone();
+	let output = quote! {
+		impl #impl_generics Wrapper #ty_generics_copy for #ident #ty_generics #where_clause {
+			fn wrap(&self) -> EnvTrace #ty_generics_copy {
         		EnvTrace::#wrapped_ident(self.clone())
     		}
 		}

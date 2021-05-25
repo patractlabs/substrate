@@ -410,7 +410,7 @@ where
 		match sandbox_result {
 			// No traps were generated. Proceed normally.
 			Ok(value) => {
-				with_runtime(|r| r.set_sandbox_result(value.clone()));
+				with_runtime::<E::T, _, _>(|r| r.set_sandbox_result(value.clone()));
 				Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: Bytes(Vec::new()) })
 			}
 			// `Error::Module` is returned only if instantiation or linking failed (i.e.
@@ -668,7 +668,7 @@ define_env!(Env, <E: Ext>,
 	// - amount: How much gas is used.
 	[seal0] gas(ctx, amount: u32) => {
 		let mut protege = crate::env_trace::Gas::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
         
 		ctx.charge_gas(RuntimeCosts::MeteringBlock(amount))?;
 
@@ -693,7 +693,7 @@ define_env!(Env, <E: Ext>,
 	// - Upon trying to set an empty storage entry (value length is 0).
 	[seal0] seal_set_storage(ctx, key_ptr: u32, value_ptr: u32, value_len: u32) => {
 		let mut protege = SealSetStorage::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::SetStorage(value_len))?;
 		if value_len > ctx.ext.max_value_size() {
@@ -718,7 +718,7 @@ define_env!(Env, <E: Ext>,
 	// - `key_ptr`: pointer into the linear memory where the location to clear the value is placed.
 	[seal0] seal_clear_storage(ctx, key_ptr: u32) => {
 		let mut protege = SealClearStorage::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::ClearStorage)?;
 		let mut key: StorageKey = [0; 32];
@@ -742,7 +742,7 @@ define_env!(Env, <E: Ext>,
 	// `ReturnCode::KeyNotFound`
 	[seal0] seal_get_storage(ctx, key_ptr: u32, out_ptr: u32, out_len_ptr: u32) -> ReturnCode => {
 		let mut protege = SealGetStorage::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::GetStorageBase)?;
 		let mut key: StorageKey = [0; 32];
@@ -782,17 +782,17 @@ define_env!(Env, <E: Ext>,
 		value_ptr: u32,
 		value_len: u32
 	) -> ReturnCode => {
-		let mut protege = SealTransfer::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealTransfer::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Transfer)?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(account_ptr, account_len)?;
-		protege.set_account(Some(callee.encode().into()));
+		protege.set_account(Some(callee.clone()));
 
 		let value: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(value_ptr, value_len)?;
-		protege.set_value(Some(value.saturated_into()));
+		protege.set_value(Some(value));
 
 		let result = ctx.ext.transfer(&callee, value);
 		match result {
@@ -847,16 +847,16 @@ define_env!(Env, <E: Ext>,
 		output_ptr: u32,
 		output_len_ptr: u32
 	) -> ReturnCode => {
-		let mut protege = SealCall::new(gas);
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealCall::<E::T>::new(gas);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::CallBase(input_data_len))?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(callee_ptr, callee_len)?;
-		protege.set_callee(Some(callee.encode().into()));
+		protege.set_callee(Some(callee.clone()));
 
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr, value_len)?;
-		protege.set_value(Some(value.saturated_into()));
+		protege.set_value(Some(value));
 
 		let input_data = ctx.read_sandbox_memory(input_data_ptr, input_data_len)?;
 		protege.set_input(Some(input_data.clone().into()));
@@ -949,8 +949,8 @@ define_env!(Env, <E: Ext>,
 		salt_ptr: u32,
 		salt_len: u32
 	) -> ReturnCode => {
-		let mut protege = SealInstantiate::new(gas);
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealInstantiate::<E::T>::new(gas);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::InstantiateBase {input_data_len, salt_len})?;
 		let code_hash: CodeHash<<E as Ext>::T> =
@@ -960,7 +960,7 @@ define_env!(Env, <E: Ext>,
 
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr, value_len)?;
 
-		protege.set_value(Some(value.saturated_into()));
+		protege.set_value(Some(value));
 
 		let input_data = ctx.read_sandbox_memory(input_data_ptr, input_data_len)?;
 
@@ -992,7 +992,7 @@ define_env!(Env, <E: Ext>,
 				Some(RuntimeCosts::InstantiateCopyOut(len))
 			})?;
 			protege.set_output(Some(output.data.clone().into()));
-			protege.set_address(Some(address.encode().into()));
+			protege.set_address(Some(address.clone()));
 		}
 
 		let return_code = Runtime::<E>::exec_into_return_code(
@@ -1025,14 +1025,14 @@ define_env!(Env, <E: Ext>,
 		beneficiary_ptr: u32,
 		beneficiary_len: u32
 	) => {
-		let mut protege = SealTerminate::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealTerminate::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Terminate)?;
 		let beneficiary: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(beneficiary_ptr, beneficiary_len)?;
 
-		protege.set_beneficiary(Some(beneficiary.encode().into()));
+		protege.set_beneficiary(Some(beneficiary.clone()));
 
 		let charged = ctx.charge_gas(
 			RuntimeCosts::TerminateSurchargeCodeSize(
@@ -1060,7 +1060,7 @@ define_env!(Env, <E: Ext>,
 	// This function can only be called once. Calling it multiple times will trigger a trap.
 	[seal0] seal_input(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealInput::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::InputBase)?;
 		if let Some(input) = ctx.input_data.take() {
@@ -1095,7 +1095,7 @@ define_env!(Env, <E: Ext>,
 	// Using a reserved bit triggers a trap.
 	[seal0] seal_return(ctx, flags: u32, data_ptr: u32, data_len: u32) => {
 		let mut protege = SealReturn::new(flags);
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Return(data_len))?;
 		let data = ctx.read_sandbox_memory(data_ptr, data_len)?;
@@ -1118,12 +1118,12 @@ define_env!(Env, <E: Ext>,
 	// extrinsic will be returned. Otherwise, if this call is initiated by another contract then the
 	// address of the contract will be returned. The value is encoded as T::AccountId.
 	[seal0] seal_caller(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealCaller::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealCaller::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Caller)?;
 
-		protege.set_out(Some(ctx.ext.caller().encode().clone().into()));
+		protege.set_out(Some(ctx.ext.caller().clone()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.caller().encode(), false, already_charged
@@ -1137,12 +1137,12 @@ define_env!(Env, <E: Ext>,
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	[seal0] seal_address(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealAddress::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealAddress::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Address)?;
 
-		protege.set_out(Some(ctx.ext.address().encode().clone().into()));
+		protege.set_out(Some(ctx.ext.address().clone()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.address().encode(), false, already_charged
@@ -1163,12 +1163,12 @@ define_env!(Env, <E: Ext>,
 	// It is recommended to avoid specifying very small values for `gas` as the prices for a single
 	// gas can be smaller than one.
 	[seal0] seal_weight_to_fee(ctx, gas: u64, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealWeightToFee::new(gas);
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealWeightToFee::<E::T>::new(gas);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::WeightToFee)?;
 
-		protege.set_out(Some(ctx.ext.get_weight_price(gas).saturated_into()));
+		protege.set_out(Some(ctx.ext.get_weight_price(gas)));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.get_weight_price(gas).encode(), false, already_charged
@@ -1185,7 +1185,7 @@ define_env!(Env, <E: Ext>,
 	// The data is encoded as Gas.
 	[seal0] seal_gas_left(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealGasLeft::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::GasLeft)?;
 		let gas_left = &ctx.ext.gas_meter().gas_left().encode();
@@ -1206,12 +1206,12 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as T::Balance.
 	[seal0] seal_balance(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealBalance::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealBalance::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Balance)?;
 
-		protege.set_out(Some(ctx.ext.balance().saturated_into()));
+		protege.set_out(Some(ctx.ext.balance()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.balance().encode(), false, already_charged
@@ -1227,12 +1227,12 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as T::Balance.
 	[seal0] seal_value_transferred(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealValueTransferred::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealValueTransferred::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::ValueTransferred)?;
 
-		protege.set_out(Some(ctx.ext.value_transferred().saturated_into()));
+		protege.set_out(Some(ctx.ext.value_transferred()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.value_transferred().encode(), false, already_charged
@@ -1253,7 +1253,7 @@ define_env!(Env, <E: Ext>,
 	// This function is deprecated. Users should migrate to the version in the "seal1" module.
 	[seal0] seal_random(ctx, subject_ptr: u32, subject_len: u32, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealRandom::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Random)?;
 		if subject_len > ctx.ext.schedule().limits.subject_len {
@@ -1293,8 +1293,8 @@ define_env!(Env, <E: Ext>,
 	// call this on later blocks until the block number returned is later than the latest
 	// commitment.
 	[seal1] seal_random(ctx, subject_ptr: u32, subject_len: u32, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealRandomV1::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealRandomV1::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Random)?;
 		if subject_len > ctx.ext.schedule().limits.subject_len {
@@ -1306,7 +1306,7 @@ define_env!(Env, <E: Ext>,
 
 		protege.set_subject(Some(subject_buf.clone().into()));
 		protege.set_out(Some(random.encode().into()));
-		protege.set_block_number(Some(number.saturated_into::<u32>()));
+		protege.set_block_number(Some(number));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &(random, number).encode(), false, already_charged
@@ -1320,12 +1320,12 @@ define_env!(Env, <E: Ext>,
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	[seal0] seal_now(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealNow::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealNow::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Now)?;
 
-		protege.set_out(Some(ctx.ext.now().encode().clone().into()));
+		protege.set_out(Some(*ctx.ext.now()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.now().encode(), false, already_charged
@@ -1336,12 +1336,12 @@ define_env!(Env, <E: Ext>,
 	//
 	// The data is encoded as T::Balance.
 	[seal0] seal_minimum_balance(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealMinimumBalance::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealMinimumBalance::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::MinimumBalance)?;
 
-		protege.set_out(Some(ctx.ext.minimum_balance().saturated_into()));
+		protege.set_out(Some(ctx.ext.minimum_balance()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.minimum_balance().encode(), false, already_charged
@@ -1364,12 +1364,12 @@ define_env!(Env, <E: Ext>,
 	// below the sum of existential deposit and the tombstone deposit. The sum
 	// is commonly referred as subsistence threshold in code.
 	[seal0] seal_tombstone_deposit(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealTombstoneDeposit::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealTombstoneDeposit::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::TombstoneDeposit)?;
 
-		protege.set_out(Some(ctx.ext.tombstone_deposit().saturated_into()));
+		protege.set_out(Some(ctx.ext.tombstone_deposit()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.tombstone_deposit().encode(), false, already_charged
@@ -1418,24 +1418,24 @@ define_env!(Env, <E: Ext>,
 		delta_ptr: u32,
 		delta_count: u32
 	) => {
-		let mut protege = SealRestoreTo::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealRestoreTo::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::RestoreTo(delta_count))?;
 		let dest: <<E as Ext>::T as frame_system::Config>::AccountId =
 			ctx.read_sandbox_memory_as(dest_ptr, dest_len)?;
 
-		protege.set_dest(Some(dest.encode().into()));
+		protege.set_dest(Some(dest.clone()));
 
 		let code_hash: CodeHash<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(code_hash_ptr, code_hash_len)?;
 
-		protege.set_code_hash(Some(code_hash.encode().clone().into()));
+		protege.set_code_hash(Some(code_hash.as_ref().into()));
 
 		let rent_allowance: BalanceOf<<E as Ext>::T> =
 			ctx.read_sandbox_memory_as(rent_allowance_ptr, rent_allowance_len)?;
 
-		protege.set_rent_allowance(Some(rent_allowance.saturated_into()));
+		protege.set_rent_allowance(Some(rent_allowance));
 
 		let delta = {
 			const KEY_SIZE: usize = 32;
@@ -1515,7 +1515,7 @@ define_env!(Env, <E: Ext>,
 		}
 
 		let mut protege = SealDepositEvent::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		let num_topic = topics_len
 			.checked_div(sp_std::mem::size_of::<TopicOf<E::T>>() as u32)
@@ -1568,8 +1568,8 @@ define_env!(Env, <E: Ext>,
 	//   Should be decodable as a `T::Balance`. Traps otherwise.
 	// - value_len: length of the value buffer.
 	[seal0] seal_set_rent_allowance(ctx, value_ptr: u32, value_len: u32) => {
-		let mut protege = SealSetRentAllowance::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let mut protege = SealSetRentAllowance::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::SetRentAllowance)?;
 		let value: BalanceOf<<E as Ext>::T> =
@@ -1592,7 +1592,7 @@ define_env!(Env, <E: Ext>,
 	// The data is encoded as T::Balance.
 	[seal0] seal_rent_allowance(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealRentAllowance::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::RentAllowance)?;
 		let rent_allowance = ctx.ext.rent_allowance().encode();
@@ -1612,7 +1612,7 @@ define_env!(Env, <E: Ext>,
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	[seal0] seal_block_number(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealBlockNumber::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::BlockNumber)?;
 
@@ -1645,7 +1645,7 @@ define_env!(Env, <E: Ext>,
 	//                 directly into this buffer.
 	[seal0] seal_hash_sha2_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
 		let mut protege = SealHashSha256::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::HashSha256(input_len))?;
 		let (input, out) =
@@ -1678,7 +1678,7 @@ define_env!(Env, <E: Ext>,
 	//                 directly into this buffer.
 	[seal0] seal_hash_keccak_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
 		let mut protege = SealHashKeccak256::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::HashKeccak256(input_len))?;
 		let (input, out) =
@@ -1711,7 +1711,7 @@ define_env!(Env, <E: Ext>,
 	//                 directly into this buffer.
 	[seal0] seal_hash_blake2_256(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
 		let mut protege = SealHashBlake256::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::HashBlake256(input_len))?;
 		let (input, out) =
@@ -1744,7 +1744,7 @@ define_env!(Env, <E: Ext>,
 	//                 directly into this buffer.
 	[seal0] seal_hash_blake2_128(ctx, input_ptr: u32, input_len: u32, output_ptr: u32) => {
 		let mut protege = SealHashBlake128::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::HashBlake128(input_len))?;
 		let (input, out) =
@@ -1775,7 +1775,7 @@ define_env!(Env, <E: Ext>,
 		output_len_ptr: u32
 	) -> u32 => {
 		let mut protege = SealChainExtension::default();
-		let _guard = EnvTraceGuard::new(&protege);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		use crate::chain_extension::{ChainExtension, Environment, RetVal};
 		if <E::T as Config>::ChainExtension::enabled() == false {
@@ -1816,12 +1816,18 @@ define_env!(Env, <E: Ext>,
 	// through compile time flags (cargo features) for on-chain deployment. Additionally, the
 	// return value of this function can be cached in order to prevent further calls at runtime.
 	[__unstable__] seal_debug_message(ctx, str_ptr: u32, str_len: u32) -> ReturnCode => {
+		let mut protege = SealPrintln::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
+
 		ctx.charge_gas(RuntimeCosts::DebugMessage)?;
 		if ctx.ext.append_debug_buffer("") {
 			let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
 			let msg = core::str::from_utf8(&data)
 				.map_err(|_| <Error<E::T>>::DebugMessageInvalidUTF8)?;
 			ctx.ext.append_debug_buffer(msg);
+
+			protege.set_str(Some(msg.to_string()));
+
 			return Ok(ReturnCode::Success);
 		}
 		Ok(ReturnCode::LoggingDisabled)
@@ -1848,8 +1854,9 @@ define_env!(Env, <E: Ext>,
 	// deploy a contract using it to a production chain.
 	[__unstable__] seal_rent_params(ctx, out_ptr: u32, out_len_ptr: u32) => {
 		let mut protege = SealRentParams::default();
-		let _guard = EnvTraceGuard::new(&protege);
-		protege.set_params(Some(ctx.ext.rent_params().encode().into()));
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
+		protege.set_params(ctx.ext.rent_params().clone());
+
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.rent_params().encode(), false, already_charged
 		)?)
@@ -1873,6 +1880,10 @@ define_env!(Env, <E: Ext>,
 	// This function is unstable and subject to change (or removal) in the future. Do not
 	// deploy a contract using it to a production chain.
 	[__unstable__] seal_rent_status(ctx, at_refcount: u32, out_ptr: u32, out_len_ptr: u32) => {
+		let mut protege = SealRentStatus::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
+		protege.set_params(ctx.ext.rent_status(at_refcount));
+
 		let rent_status = ctx.ext.rent_status(at_refcount).encode();
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &rent_status, false, already_charged

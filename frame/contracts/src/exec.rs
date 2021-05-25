@@ -26,7 +26,7 @@ use sp_std::{
 	marker::PhantomData,
 	mem,
 };
-use sp_runtime::{Perbill, traits::{Convert, Saturating, SaturatedConversion}};
+use sp_runtime::{Perbill, traits::{Convert, Saturating}};
 use frame_support::{
 	dispatch::{DispatchResult, DispatchError},
 	storage::{with_transaction, TransactionOutcome},
@@ -37,7 +37,6 @@ use frame_support::{
 use pallet_contracts_primitives::{ExecReturnValue};
 use smallvec::{SmallVec, Array};
 
-use codec::Encode;
 use crate::trace_runtime::with_nested_runtime;
 
 pub type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
@@ -90,7 +89,8 @@ impl<T: Into<DispatchError>> From<T> for ExecError {
 
 /// Information needed for rent calculations that can be requested by a contract.
 #[derive(codec::Encode, DefaultNoBound)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+// #[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(feature = "std", derive(frame_support::DebugNoBound, PartialEq, Clone))]
 pub struct RentParams<T: Config> {
 	/// The total balance of the contract. Includes the balance transferred from the caller.
 	total_balance: BalanceOf<T>,
@@ -789,11 +789,11 @@ where
 		input_data: Vec<u8>
 	) -> Result<(ExecReturnValue, u32), (ExecError, u32)> {
 		let input_data_copy = input_data.clone();
-		let dest = self.address().encode();
-		let value = self.value_transferred().saturated_into::<u128>();
+		let dest = self.address().clone();
+		let value = self.value_transferred();
 		let gas_left = self.top_frame().nested_meter.gas_left();
 		let depth = self.frames.len() + 1;
-		let sender = self.caller().encode();
+		let sender = self.caller().clone();
 
 		let entry_point = self.top_frame().entry_point;
 		let do_transaction = || {
@@ -849,7 +849,7 @@ where
 		// This allows for roll back on error. Changes to the cached contract_info are
 		// comitted or rolled back when popping the frame.
 		let (success, output) = with_transaction(|| {
-			let output = with_nested_runtime(
+			let output = with_nested_runtime::<_, _, T>(
 				input_data_copy,
 				dest,
 				gas_left,

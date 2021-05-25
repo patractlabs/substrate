@@ -1,20 +1,19 @@
 use sp_std::fmt::{self, Formatter};
-use sp_core::crypto::AccountId32;
-use sp_std::cmp::min;
 use sp_sandbox::{Error, ReturnValue};
 use codec::{Decode, Encode};
 use frame_support::weights::Weight;
 
 use crate::{
-    env_trace::{EnvTrace, HexVec},
+    BalanceOf,
+    env_trace::{AccountIdOf, EnvTrace, HexVec},
     exec::{ExecResult, ExecError, ErrorOrigin},
-    wasm::runtime::TrapReason
+    wasm::runtime::TrapReason, Config
 };
 
 /// The host function call stack.
-struct EnvTraceList(Vec<EnvTrace>);
+struct EnvTraceList<C: Config>(Vec<EnvTrace<C>>);
 
-impl fmt::Debug for EnvTraceList {
+impl<C: Config> fmt::Debug for EnvTraceList<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.0.iter()
             .filter(|t| {
@@ -76,7 +75,7 @@ pub fn into_exec_result_trace(ext_result: &ExecResult) -> ExecResultTrace {
 }
 
 /// Record the contract execution context.
-pub struct NestedRuntime {
+pub struct NestedRuntime<C: Config> {
 	/// Current depth
     depth: usize,
 	/// The current contract execute result
@@ -84,27 +83,27 @@ pub struct NestedRuntime {
 	/// The value in sandbox successful result
 	sandbox_result_ok: Option<ReturnValue>,
 	/// Who call the current contract
-    caller: AccountId32,
+    caller: AccountIdOf<C>,
 	/// The account of the current contract
-    self_account: AccountId32,
+    self_account: AccountIdOf<C>,
 	/// The input selector
     selector: Option<HexVec>,
 	/// The input arguments
     args: Option<HexVec>,
 	/// The value in call or the endowment in instantiate
-    value: u128,
+    value: BalanceOf<C>,
 	/// The gas limit when this contract is called
     gas_limit: Weight,
 	/// The gas left when this contract return
     gas_left: Weight,
 	/// The host function call stack
-    env_trace: EnvTraceList,
+    env_trace: EnvTraceList<C>,
 	/// The error in wasm
     wasm_error: Option<Error>,
 	/// The trap in host function execution
     trap_reason: Option<TrapReason>,
 	/// Nested contract execution context
-    nest: Vec<NestedRuntime>,
+    nest: Vec<NestedRuntime<C>>,
 }
 
 /// Print `Option<T>`, make `Some` transparent.
@@ -116,7 +115,7 @@ fn print_option<T: fmt::Debug>(arg: &Option<T>) -> String {
     }
 }
 
-impl fmt::Debug for NestedRuntime {
+impl<C: Config> fmt::Debug for NestedRuntime<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
 		let mut debug_struct = f.debug_struct(&format!("{}: NestedRuntime", &self.depth));
 
@@ -155,14 +154,14 @@ impl fmt::Debug for NestedRuntime {
     }
 }
 
-impl NestedRuntime {
+impl<C: Config> NestedRuntime<C> {
     pub fn new(
         depth: usize,
-        caller: AccountId32,
-        self_account: AccountId32,
+        caller: AccountIdOf<C>,
+        self_account: AccountIdOf<C>,
         selector: Option<HexVec>,
         args: Option<HexVec>,
-        value: u128,
+        value: BalanceOf<C>,
         gas_limit: Weight,
     ) -> Self {
         NestedRuntime {
@@ -191,11 +190,11 @@ impl NestedRuntime {
         self.depth == 1
     }
 
-    pub fn nested(&mut self, nest: NestedRuntime) {
+    pub fn nested(&mut self, nest: NestedRuntime<C>) {
         self.nest.push(nest);
     }
 
-    pub fn nest_pop(&mut self) -> &mut NestedRuntime {
+    pub fn nest_pop(&mut self) -> &mut NestedRuntime<C> {
         self.nest.last_mut().expect("Must not be empty after `nested`")
     }
 
@@ -203,7 +202,7 @@ impl NestedRuntime {
         self.gas_left = left;
     }
 
-    pub fn env_trace_push(&mut self, host_func: EnvTrace) {
+    pub fn env_trace_push(&mut self, host_func: EnvTrace<C>) {
         let env_trace = &mut self.env_trace;
         env_trace.0.push(host_func);
     }
@@ -225,7 +224,7 @@ impl NestedRuntime {
 	}
 }
 
-impl Drop for NestedRuntime {
+impl<C: Config> Drop for NestedRuntime<C> {
     fn drop(&mut self) {
         if self.depth == 1 {
             println! {"{:#?}\n", self};
@@ -233,38 +232,58 @@ impl Drop for NestedRuntime {
     }
 }
 
-environmental::environmental!(runtime: NestedRuntime);
+// environmental::environmental!(runtime: trait NestedRuntimeT);
+mod inner_environmental {
+    use super::*;
+    use environmental::{GlobalInner, thread_local_impl, using, with};
+    #[allow(non_camel_case_types)]
+    pub struct runtime<C: Config> {
+        __phantom: sp_std::marker::PhantomData<C>
+    }
+    // a hack way to pass the static compile, using a `dyn Trait` for `GlobalInner<T>`
+    // and in `::environmental::with` closure, convert `dyn Trait` to specified struct in unsafe part.
+    trait NestedRuntimeT { }
+    impl<C: Config> NestedRuntimeT for NestedRuntime<C> { }
+    thread_local_impl! {
+        static GLOBAL: GlobalInner<dyn NestedRuntimeT> = Default::default()
+    }
+    impl<C: Config> runtime<C> {
+        pub fn using<R, F: FnOnce() -> R>(protected: &mut NestedRuntime<C>, f: F) -> R {
+            using(&GLOBAL, protected, f)
+        }
+        pub fn with<R, F: FnOnce(&mut NestedRuntime<C>) -> R>(f: F) -> Option<R> {
+            with(&GLOBAL, |x| {
+                let x = unsafe {
+                    let p = x as *mut dyn NestedRuntimeT as *mut NestedRuntime<C>;
+                    &mut *p
+                };
+                f(x)
+            })
+        }
+    }
+}
 
-pub fn set_and_run_with_runtime<F, R>(runtime: &mut NestedRuntime, f: F) -> R
+pub fn set_and_run_with_runtime<C:Config, F, R>(runtime: &mut NestedRuntime<C>, f: F) -> R
     where
         F: FnOnce() -> R,
 {
+    use inner_environmental::runtime;
     runtime::using(runtime, f)
 }
 
-pub fn with_runtime<F: FnOnce(&mut NestedRuntime) -> R, R>(f: F) -> Option<R> {
+pub fn with_runtime<C:Config, F: FnOnce(&mut NestedRuntime<C>) -> R, R>(f: F) -> Option<R> {
+    use inner_environmental::runtime;
     runtime::with(f)
 }
 
-/// Unchecked convert the account to `AccountId32`.
-fn unchecked_into_account_id32(raw_vec: Vec<u8>)-> AccountId32{
-    let mut account = [0u8;32];
-    let border = min(raw_vec.len(), 32);
-    for i in 0..border {
-        account[i] = raw_vec[i]
-    }
-
-    AccountId32::from(account)
-}
-
 /// Execute the given closure within a nested execution context.
-pub fn with_nested_runtime<F, R>(
+pub fn with_nested_runtime<F, R, C: Config>(
     input_data: Vec<u8>,
-    dest: Vec<u8>,
+    dest: AccountIdOf<C>,
     gas_left: Weight,
-    value: u128,
+    value: BalanceOf<C>,
     depth: usize,
-    self_account: Vec<u8>,
+    self_account: AccountIdOf<C>,
     f: F,
 ) -> R
     where
@@ -281,8 +300,8 @@ pub fn with_nested_runtime<F, R>(
 
     let mut nest = NestedRuntime::new(
         depth,
-        unchecked_into_account_id32(self_account),
-        unchecked_into_account_id32(dest),
+        self_account,
+        dest,
         selector,
         args,
         value,
@@ -290,9 +309,9 @@ pub fn with_nested_runtime<F, R>(
     );
 
     if nest.is_top_level() {
-        set_and_run_with_runtime(&mut nest, f)
+        set_and_run_with_runtime::<C, F, R>(&mut nest, f)
     } else {
-        with_runtime(|r| {
+        with_runtime::<C, _, _>(|r| {
             r.nested(nest);
             set_and_run_with_runtime(r.nest_pop(), f)
         }).unwrap()

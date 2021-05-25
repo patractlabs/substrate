@@ -1,13 +1,21 @@
 use add_getters_setters::AddSetter;
 use derivative::Derivative;
-use sp_std::fmt;
-use sp_std::fmt::Formatter;
-use pallet_contracts_proc_macro::{HostDebug, Wrap};
 use serde::{Serialize, Deserialize};
 
-use crate::trace_runtime::with_runtime;
-use crate::wasm::ReturnCode;
-use crate::chain_extension::RetVal;
+use sp_std::fmt;
+use sp_std::fmt::Formatter;
+
+use frame_support::{DefaultNoBound, weights::Weight};
+use pallet_contracts_proc_macro::{HostDebug, HostDebugWithGeneric, Wrap, WrapWithGeneric};
+
+use crate::{
+    BalanceOf, Config, chain_extension::RetVal, exec::RentParams, trace_runtime::with_runtime,
+    rent::RentStatus, wasm::ReturnCode
+};
+
+pub type AccountIdOf<C> = <C as frame_system::Config>::AccountId;
+type BlockNumberOf<C> = <C as frame_system::Config>::BlockNumber;
+type MomentOf<C> = <<C as Config>::Time as frame_support::traits::Time>::Moment;
 
 /// The vector that can be printed as "0x1234"
 #[derive(Clone)]
@@ -30,27 +38,34 @@ impl From<Vec<u8>> for HexVec {
     }
 }
 
+impl From<&[u8]> for HexVec {
+    fn from(vec: &[u8]) -> Self {
+        HexVec(vec.to_vec())
+    }
+}
+
 impl From<sp_core::Bytes> for HexVec {
     fn from(vec: sp_core::Bytes) -> Self {
         HexVec(vec.0)
     }
 }
 
-pub trait Wrapper: Clone {
-    fn wrap(&self) -> EnvTrace;
+pub trait Wrapper<C: Config>: Clone {
+    fn wrap(&self) -> EnvTrace<C>;
 }
 
-pub struct EnvTraceGuard<T: Wrapper> {
+pub struct EnvTraceGuard<C: Config, T: Wrapper<C>> {
     ptr: *const T,
+    _phantom: sp_std::marker::PhantomData<C>,
 }
 
-impl<T: Wrapper> EnvTraceGuard<T> {
-    pub fn new(seal: &T) -> EnvTraceGuard<T> {
-        EnvTraceGuard { ptr: seal as *const T }
+impl<C: Config, T: Wrapper<C>> EnvTraceGuard<C, T> {
+    pub fn new(seal: &T) -> EnvTraceGuard<C, T> {
+        EnvTraceGuard { ptr: seal as *const T, _phantom: Default::default() }
     }
 }
 
-impl<T: Wrapper> Drop for EnvTraceGuard<T> {
+impl<C: Config, T: Wrapper<C>> Drop for EnvTraceGuard<C, T> {
     fn drop(&mut self) {
         with_runtime(|r|
             r.env_trace_push(T::wrap(
@@ -96,22 +111,22 @@ pub struct SealGetStorage {
     output: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealTransfer {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealTransfer<C: Config> {
     #[set]
-    account: Option<HexVec>,
+    account: Option<AccountIdOf<C>>,
     #[set]
-    value: Option<u128>,
+    value: Option<BalanceOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealCall {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealCall<C: Config> {
     #[set]
-    callee: Option<HexVec>,
+    callee: Option<AccountIdOf<C>>,
     #[set]
-    gas: u64,
+    gas: Weight,
     #[set]
-    value: Option<u128>,
+    value: Option<BalanceOf<C>>,
     #[set]
     input: Option<HexVec>,
     #[set]
@@ -120,8 +135,8 @@ pub struct SealCall {
     result: Option<ReturnCode>,
 }
 
-impl SealCall {
-    pub fn new(gas: u64) -> Self {
+impl<C: Config> SealCall<C> {
+    pub fn new(gas: Weight) -> Self {
         SealCall {
             gas,
             ..Default::default()
@@ -129,18 +144,18 @@ impl SealCall {
     }
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealInstantiate {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealInstantiate<C: Config> {
     #[set]
     code_hash: Option<HexVec>,
     #[set]
-    gas: u64,
+    gas: Weight,
     #[set]
-    value: Option<u128>,
+    value: Option<BalanceOf<C>>,
     #[set]
     input: Option<HexVec>,
     #[set]
-    address: Option<HexVec>,
+    address: Option<AccountIdOf<C>>,
     #[set]
     output: Option<HexVec>,
     #[set]
@@ -149,8 +164,8 @@ pub struct SealInstantiate {
     result: Option<ReturnCode>,
 }
 
-impl SealInstantiate {
-    pub fn new(gas: u64) -> Self {
+impl<C: Config> SealInstantiate<C> {
+    pub fn new(gas: Weight) -> Self {
         SealInstantiate {
             gas,
             ..Default::default()
@@ -158,10 +173,10 @@ impl SealInstantiate {
     }
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealTerminate {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealTerminate<C: Config> {
     #[set]
-    beneficiary: Option<HexVec>,
+    beneficiary: Option<AccountIdOf<C>>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
@@ -186,27 +201,27 @@ impl SealReturn {
     }
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealCaller {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealCaller<C: Config> {
     #[set]
-    out: Option<HexVec>,
+    out: Option<AccountIdOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealAddress {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealAddress<C: Config> {
     #[set]
-    out: Option<HexVec>,
+    out: Option<AccountIdOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealWeightToFee {
-    gas: u64,
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealWeightToFee<C: Config> {
+    gas: Weight,
     #[set]
-    out: Option<u128>,
+    out: Option<BalanceOf<C>>,
 }
 
-impl SealWeightToFee {
-    pub fn new(gas: u64) -> Self {
+impl<C: Config> SealWeightToFee<C> {
+    pub fn new(gas: Weight) -> Self {
         SealWeightToFee {
             gas,
             ..Default::default()
@@ -217,19 +232,19 @@ impl SealWeightToFee {
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealGasLeft {
     #[set]
-    out: Option<u64>,
+    out: Option<Weight>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealBalance {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealBalance<C: Config> {
     #[set]
-    out: Option<u128>,
+    out: Option<BalanceOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealValueTransferred {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealValueTransferred<C: Config> {
     #[set]
-    out: Option<u128>,
+    out: Option<BalanceOf<C>>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
@@ -240,42 +255,42 @@ pub struct SealRandom {
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealRandomV1 {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealRandomV1<C: Config> {
     #[set]
     subject: Option<HexVec>,
     #[set]
     out: Option<HexVec>,
     #[set]
-    block_number: Option<u32>,
+    block_number: Option<BlockNumberOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealNow {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealNow<C: Config> {
     #[set]
-    out: Option<HexVec>,
+    out: Option<MomentOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealMinimumBalance {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealMinimumBalance<C: Config> {
     #[set]
-    out: Option<u128>,
+    out: Option<BalanceOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealTombstoneDeposit {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealTombstoneDeposit<C: Config> {
     #[set]
-    out: Option<u128>,
+    out: Option<BalanceOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealRestoreTo {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealRestoreTo<C: Config> {
     #[set]
-    dest: Option<HexVec>,
+    dest: Option<AccountIdOf<C>>,
     #[set]
     code_hash: Option<HexVec>,
     #[set]
-    rent_allowance: Option<u128>,
+    rent_allowance: Option<BalanceOf<C>>,
     #[set]
     delta: Option<Vec<HexVec>>,
 }
@@ -288,16 +303,16 @@ pub struct SealDepositEvent {
     data: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealSetRentAllowance {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealSetRentAllowance<C: Config> {
     #[set]
-    value: Option<u128>,
+    value: Option<BalanceOf<C>>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealRentAllowance {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealRentAllowance<C: Config> {
     #[set]
-    out: Option<u128>,
+    out: Option<BalanceOf<C>>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
@@ -344,7 +359,7 @@ pub struct SealHashBlake128 {
     out: Option<HexVec>,
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[derive(frame_support::DefaultNoBound, AddSetter, HostDebug, Clone, Wrap)]
 pub struct SealChainExtension {
     #[set]
     func_id: Option<u32>,
@@ -352,15 +367,21 @@ pub struct SealChainExtension {
     ret_val: Option<RetVal>
 }
 
-#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
-pub struct SealRentParams {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealRentParams<C: Config> {
     #[set]
-    params: Option<HexVec>,
+    params: RentParams<C>,
+}
+
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+pub struct SealRentStatus<C: Config> {
+    #[set]
+    params: RentStatus<C>,
 }
 
 #[cfg_attr(feature = "std", derive(Derivative))]
-#[derivative(Debug)]
-pub enum EnvTrace {
+#[derivative(Debug(bound="C: Config"))]
+pub enum EnvTrace<C: Config> {
     #[derivative(Debug = "transparent")]
     Gas(Gas),
     #[derivative(Debug = "transparent")]
@@ -370,47 +391,47 @@ pub enum EnvTrace {
     #[derivative(Debug = "transparent")]
     SealGetStorage(SealGetStorage),
     #[derivative(Debug = "transparent")]
-    SealTransfer(SealTransfer),
+    SealTransfer(SealTransfer<C>),
     #[derivative(Debug = "transparent")]
-    SealCall(SealCall),
+    SealCall(SealCall<C>),
     #[derivative(Debug = "transparent")]
-    SealInstantiate(SealInstantiate),
+    SealInstantiate(SealInstantiate<C>),
     #[derivative(Debug = "transparent")]
-    SealTerminate(SealTerminate),
+    SealTerminate(SealTerminate<C>),
     #[derivative(Debug = "transparent")]
     SealInput(SealInput),
     #[derivative(Debug = "transparent")]
     SealReturn(SealReturn),
     #[derivative(Debug = "transparent")]
-    SealCaller(SealCaller),
+    SealCaller(SealCaller<C>),
     #[derivative(Debug = "transparent")]
-    SealAddress(SealAddress),
+    SealAddress(SealAddress<C>),
     #[derivative(Debug = "transparent")]
-    SealWeightToFee(SealWeightToFee),
+    SealWeightToFee(SealWeightToFee<C>),
     #[derivative(Debug = "transparent")]
     SealGasLeft(SealGasLeft),
     #[derivative(Debug = "transparent")]
-    SealBalance(SealBalance),
+    SealBalance(SealBalance<C>),
     #[derivative(Debug = "transparent")]
-    SealValueTransferred(SealValueTransferred),
+    SealValueTransferred(SealValueTransferred<C>),
     #[derivative(Debug = "transparent")]
     SealRandom(SealRandom),
     #[derivative(Debug = "transparent")]
-    SealRandomV1(SealRandomV1),
+    SealRandomV1(SealRandomV1<C>),
     #[derivative(Debug = "transparent")]
-    SealNow(SealNow),
+    SealNow(SealNow<C>),
     #[derivative(Debug = "transparent")]
-    SealMinimumBalance(SealMinimumBalance),
+    SealMinimumBalance(SealMinimumBalance<C>),
     #[derivative(Debug = "transparent")]
-    SealTombstoneDeposit(SealTombstoneDeposit),
+    SealTombstoneDeposit(SealTombstoneDeposit<C>),
     #[derivative(Debug = "transparent")]
-    SealRestoreTo(SealRestoreTo),
+    SealRestoreTo(SealRestoreTo<C>),
     #[derivative(Debug = "transparent")]
     SealDepositEvent(SealDepositEvent),
     #[derivative(Debug = "transparent")]
-    SealSetRentAllowance(SealSetRentAllowance),
+    SealSetRentAllowance(SealSetRentAllowance<C>),
     #[derivative(Debug = "transparent")]
-    SealRentAllowance(SealRentAllowance),
+    SealRentAllowance(SealRentAllowance<C>),
     #[derivative(Debug = "transparent")]
     SealPrintln(SealPrintln),
     #[derivative(Debug = "transparent")]
@@ -426,5 +447,7 @@ pub enum EnvTrace {
     #[derivative(Debug = "transparent")]
     SealChainExtension(SealChainExtension),
     #[derivative(Debug = "transparent")]
-    SealRentParams(SealRentParams),
+    SealRentParams(SealRentParams<C>),
+    #[derivative(Debug = "transparent")]
+    SealRentStatus(SealRentStatus<C>),
 }

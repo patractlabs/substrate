@@ -219,11 +219,11 @@ where
 		let result = sp_sandbox::Instance::new(&code, &imports, &mut runtime)
 			.and_then(|mut instance| instance.invoke(function.identifier(), &[], &mut runtime));
 		let ext_result = runtime.to_execution_result(&result);
-		with_runtime(|r| r.set_gas_left(ext.gas_meter().gas_left()));
+		with_runtime::<T, _, _>(|r| r.set_gas_left(ext.gas_meter().gas_left()));
 
 		let ext_result_record = into_exec_result_trace(&ext_result);
 
-		with_runtime(|r| {
+		with_runtime::<T, _, _>(|r| {
 			r.set_ext_result(ext_result_record);
 			if let Err(e) = result {
 				r.set_wasm_error(e);
