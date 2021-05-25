@@ -485,7 +485,7 @@ impl Default for Limits {
 			subject_len: 32,
 			call_depth: 32,
 			payload_len: 16 * 1024,
-			code_len: 128 * 1024,
+			code_len: 128 * 1024 * 1024, // temporarily set to 128M until issue [#8433](https://github.com/paritytech/substrate/issues/8433) finish
 		}
 	}
 }
