@@ -1565,6 +1565,7 @@ name = "ep-sandbox"
 version = "0.2.1"
 dependencies = [
  "parity-scale-codec",
+ "serde",
  "sp-core 3.0.0 (git+https://github.com/paritytech/substrate?branch=master)",
  "sp-io 3.0.0 (git+https://github.com/paritytech/substrate?branch=master)",
  "sp-std 3.0.0 (git+https://github.com/paritytech/substrate?branch=master)",

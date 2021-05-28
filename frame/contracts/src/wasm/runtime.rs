@@ -51,6 +51,7 @@ use crate::trace_runtime::with_runtime;
 /// those errors gracefuly in order to be forward compatible.
 #[repr(u32)]
 #[derive(Clone, Copy, RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum ReturnCode {
 	/// API call successful.
 	Success = 0,
@@ -106,11 +107,13 @@ impl From<ExecReturnValue> for ReturnCode {
 
 /// The data passed through when a contract uses `seal_return`.
 #[derive(Clone)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ReturnData {
 	/// The flags as passed through by the contract. They are still unchecked and
 	/// will later be parsed into a `ReturnFlags` bitflags struct.
 	flags: u32,
 	/// The output buffer passed by the contract as return data.
+	#[cfg_attr(feature = "std", serde(with="sp_core::bytes"))]
 	data: Vec<u8>,
 }
 
@@ -130,6 +133,7 @@ impl fmt::Debug for ReturnData {
 /// The other case is where the trap does not constitute an error but rather was invoked
 /// as a quick way to terminate the application (all other variants).
 #[derive(Clone, RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum TrapReason {
 	/// The supervisor trapped the contract because of an error condition occurred during
 	/// execution in privileged code.
@@ -410,7 +414,7 @@ where
 		match sandbox_result {
 			// No traps were generated. Proceed normally.
 			Ok(value) => {
-				with_runtime::<E::T, _, _>(|r| r.set_sandbox_result(value.clone()));
+				with_runtime::<E::T, _, _>(|r| r.set_sandbox_result(*value));
 				Ok(ExecReturnValue { flags: ReturnFlags::empty(), data: Bytes(Vec::new()) })
 			}
 			// `Error::Module` is returned only if instantiation or linking failed (i.e.
@@ -1320,12 +1324,12 @@ define_env!(Env, <E: Ext>,
 	// `out_ptr`. This call overwrites it with the size of the value. If the available
 	// space at `out_ptr` is less than the size of the value a trap is triggered.
 	[seal0] seal_now(ctx, out_ptr: u32, out_len_ptr: u32) => {
-		let mut protege = SealNow::<E::T>::default();
+		let mut protege = SealNow::default();
 		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
 		ctx.charge_gas(RuntimeCosts::Now)?;
 
-		protege.set_out(Some(*ctx.ext.now()));
+		protege.set_out(Some((*ctx.ext.now()).saturated_into::<u64>()));
 
 		Ok(ctx.write_sandbox_output(
 			out_ptr, out_len_ptr, &ctx.ext.now().encode(), false, already_charged

@@ -37,7 +37,9 @@ use frame_support::{
 use pallet_contracts_primitives::{ExecReturnValue};
 use smallvec::{SmallVec, Array};
 
-use crate::trace_runtime::with_nested_runtime;
+use crate::trace_runtime::{NestedRuntime, with_nested_runtime};
+#[cfg(feature = "std")]
+use serde::{Serialize, Deserialize};
 
 pub type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 pub type MomentOf<T> = <<T as Config>::Time as Time>::Moment;
@@ -57,6 +59,7 @@ pub type TopicOf<T> = <T as frame_system::Config>::Hash;
 // #[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(sp_runtime::RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub enum ErrorOrigin {
 	/// Caller error origin.
 	///
@@ -71,6 +74,7 @@ pub enum ErrorOrigin {
 // #[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(sp_runtime::RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct ExecError {
 	/// The reason why the execution failed.
 	pub error: DispatchError,
@@ -91,6 +95,7 @@ impl<T: Into<DispatchError>> From<T> for ExecError {
 #[derive(codec::Encode, DefaultNoBound)]
 // #[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "std", derive(frame_support::DebugNoBound, PartialEq, Clone))]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct RentParams<T: Config> {
 	/// The total balance of the contract. Includes the balance transferred from the caller.
 	total_balance: BalanceOf<T>,
@@ -599,16 +604,22 @@ where
 		value: BalanceOf<T>,
 		input_data: Vec<u8>,
 		debug_message: Option<&'a mut Vec<u8>>,
-	) -> Result<(ExecReturnValue, u32), (ExecError, u32)> {
-		let (mut stack, executable) = Self::new(
+	) -> (Result<(ExecReturnValue, u32), (ExecError, u32)>, NestedRuntime<T>){
+		let init = Self::new(
 			FrameArgs::Call{dest, cached_info: None},
 			origin,
 			gas_meter,
 			schedule,
 			value,
 			debug_message,
-		)?;
-		stack.run(executable, input_data)
+		);
+		let (mut stack, executable) = match init {
+			Ok((a, b)) => (a, b),
+			Err(e) => return (Err(e), NestedRuntime::<T>::none()),
+		};
+
+		let (r, t) = stack.run(executable, input_data);
+		(r, t.expect("NestedRuntime must be existed for top frame"))
 	}
 
 	/// Create and run a new call stack by instantiating a new contract.
@@ -630,8 +641,8 @@ where
 		input_data: Vec<u8>,
 		salt: &[u8],
 		debug_message: Option<&'a mut Vec<u8>>,
-	) -> Result<(T::AccountId, ExecReturnValue), ExecError> {
-		let (mut stack, executable) = Self::new(
+	) -> (Result<(T::AccountId, ExecReturnValue), ExecError>, NestedRuntime<T>) {
+		let init = Self::new(
 			FrameArgs::Instantiate {
 				sender: origin.clone(),
 				trie_seed: Self::initial_trie_seed(),
@@ -643,11 +654,16 @@ where
 			schedule,
 			value,
 			debug_message,
-		).map_err(|(e, _code_len)| e)?;
+		).map_err(|(e, _code_len)| e);
+		let (mut stack, executable) = match init {
+			Ok((a, b)) => (a, b),
+			Err(e) => return (Err(e), NestedRuntime::<T>::none()),
+		};
 		let account_id = stack.top_frame().account_id.clone();
-		stack.run(executable, input_data)
-			.map(|(ret, _code_len)| (account_id, ret))
-			.map_err(|(err, _code_len)| err)
+		let (r, t) = stack.run(executable, input_data);
+		let r = r.map(|(ret, _code_len)| (account_id, ret))
+			.map_err(|(err, _code_len)| err);
+		(r, t.expect("NestedRuntime must be existed for top frame"))
 	}
 
 	/// Create a new call stack.
@@ -787,7 +803,7 @@ where
 		&mut self,
 		executable: E,
 		input_data: Vec<u8>
-	) -> Result<(ExecReturnValue, u32), (ExecError, u32)> {
+	) -> (Result<(ExecReturnValue, u32), (ExecError, u32)>, Option<NestedRuntime<T>>) {
 		let input_data_copy = input_data.clone();
 		let dest = self.address().clone();
 		let value = self.value_transferred();
@@ -860,7 +876,7 @@ where
 					do_transaction()
 				});
 			// let output = do_transaction();
-			match output {
+			match output.0 {
 				Ok((ref result, _)) if result.is_success() => {
 					TransactionOutcome::Commit((true, output))
 				},
@@ -1073,7 +1089,7 @@ where
 			value,
 			gas_limit
 		)?;
-		self.run(executable, input_data)
+		self.run(executable, input_data).0
 	}
 
 	fn instantiate(
@@ -1098,7 +1114,7 @@ where
 			gas_limit,
 		)?;
 		let account_id = self.top_frame().account_id.clone();
-		self.run(executable, input_data)
+		self.run(executable, input_data).0
 			.map(|(ret, code_len)| (account_id, ret, code_len))
 	}
 
@@ -1517,7 +1533,7 @@ mod tests {
 			assert_matches!(
 				MockStack::run_call(
 					ALICE, BOB, &mut gas_meter, &schedule, value, vec![], None,
-				),
+				).0,
 				Ok(_)
 			);
 		});
@@ -1575,7 +1591,7 @@ mod tests {
 				55,
 				vec![],
 				None,
-			).unwrap();
+			).0.unwrap();
 
 			assert!(!output.0.is_success());
 			assert_eq!(get_balance(&origin), 100);
@@ -1635,7 +1651,7 @@ mod tests {
 				0,
 				vec![],
 				None,
-			);
+			).0;
 
 			let output = result.unwrap();
 			assert!(output.0.is_success());
@@ -1666,7 +1682,7 @@ mod tests {
 				0,
 				vec![],
 				None,
-			);
+			).0;
 
 			let output = result.unwrap();
 			assert!(!output.0.is_success());
@@ -1694,7 +1710,7 @@ mod tests {
 				0,
 				vec![1, 2, 3, 4],
 				None,
-			);
+			).0;
 			assert_matches!(result, Ok(_));
 		});
 	}
@@ -1726,7 +1742,7 @@ mod tests {
 				vec![1, 2, 3, 4],
 				&[],
 				None,
-			);
+			).0;
 			assert_matches!(result, Ok(_));
 		});
 	}
@@ -1775,7 +1791,7 @@ mod tests {
 				value,
 				vec![],
 				None,
-			);
+			).0;
 
 			assert_matches!(result, Ok(_));
 		});
@@ -1825,7 +1841,7 @@ mod tests {
 				0,
 				vec![],
 				None,
-			);
+			).0;
 
 			assert_matches!(result, Ok(_));
 		});
@@ -1865,7 +1881,7 @@ mod tests {
 				0,
 				vec![],
 				None,
-			);
+			).0;
 
 			assert_matches!(result, Ok(_));
 		});
@@ -1892,7 +1908,7 @@ mod tests {
 					vec![],
 					&[],
 					None,
-				),
+				).0,
 				Err(_)
 			);
 		});
@@ -1923,7 +1939,7 @@ mod tests {
 					vec![],
 					&[],
 					None,
-				),
+				).0,
 				Ok((address, ref output)) if output.data == Bytes(vec![80, 65, 83, 83]) => address
 			);
 
@@ -1961,7 +1977,7 @@ mod tests {
 					vec![],
 					&[],
 					None,
-				),
+				).0,
 				Ok((address, ref output)) if output.data == Bytes(vec![70, 65, 73, 76]) => address
 			);
 
@@ -2001,7 +2017,7 @@ mod tests {
 			assert_matches!(
 				MockStack::run_call(
 					ALICE, BOB, &mut GasMeter::<Test>::new(GAS_LIMIT), &schedule, 20, vec![], None,
-				),
+				).0,
 				Ok(_)
 			);
 
@@ -2052,7 +2068,7 @@ mod tests {
 			assert_matches!(
 				MockStack::run_call(
 					ALICE, BOB, &mut GasMeter::<Test>::new(GAS_LIMIT), &schedule, 20, vec![], None,
-				),
+				).0,
 				Ok(_)
 			);
 
@@ -2090,7 +2106,7 @@ mod tests {
 						vec![],
 						&[],
 						None,
-					),
+					).0,
 					Err(Error::<Test>::TerminatedInConstructor.into())
 				);
 
@@ -2130,7 +2146,7 @@ mod tests {
 				vec![],
 				&[],
 				None,
-			);
+			).0;
 			assert_matches!(result, Ok(_));
 		});
 	}
@@ -2160,7 +2176,7 @@ mod tests {
 				0,
 				vec![],
 				None,
-			).unwrap();
+			).0.unwrap();
 		});
 	}
 
@@ -2210,7 +2226,7 @@ mod tests {
 				subsistence * 50,
 				vec![],
 				None,
-			).unwrap();
+			).0.unwrap();
 		});
 	}
 
@@ -2252,7 +2268,7 @@ mod tests {
 				0,
 				vec![],
 				None,
-			).unwrap();
+			).0.unwrap();
 		});
 	}
 
@@ -2300,7 +2316,7 @@ mod tests {
 				0,
 				vec![0],
 				None,
-			);
+			).0;
 			assert_matches!(result, Ok(_));
 		});
 	}
@@ -2335,7 +2351,7 @@ mod tests {
 				vec![],
 				&[],
 				None,
-			);
+			).0;
 			assert_matches!(result, Ok(_));
 		});
 	}
@@ -2364,7 +2380,7 @@ mod tests {
 				0,
 				vec![],
 				Some(&mut debug_buffer),
-			).unwrap();
+			).0.unwrap();
 		});
 
 		assert_eq!(&String::from_utf8(debug_buffer).unwrap(), "This is a testMore text");
@@ -2394,7 +2410,7 @@ mod tests {
 				0,
 				vec![],
 				Some(&mut debug_buffer),
-			);
+			).0;
 			assert!(result.is_err());
 		});
 

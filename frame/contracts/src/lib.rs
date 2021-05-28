@@ -96,8 +96,12 @@ mod migration;
 
 pub mod chain_extension;
 pub mod weights;
+
+pub mod env_trace;
+mod helper;
 mod trace_runtime;
-mod env_trace;
+
+pub use trace_runtime::{EnvTraceList, NestedRuntime};
 
 #[cfg(test)]
 mod tests;
@@ -291,9 +295,11 @@ pub mod pallet {
 			let dest = T::Lookup::lookup(dest)?;
 			let mut gas_meter = GasMeter::new(gas_limit);
 			let schedule = T::Schedule::get();
-			let (result, code_len) = match ExecStack::<T, PrefabWasmModule<T>>::run_call(
+			// TODO store trace to local
+			let (r, trace) =  ExecStack::<T, PrefabWasmModule<T>>::run_call(
 				origin, dest, &mut gas_meter, &schedule, value, data, None,
-			) {
+			);
+			let (result, code_len) = match r {
 				Ok((output, len)) => (Ok(output), len),
 				Err((err, len)) => (Err(err), len),
 			};
@@ -344,9 +350,11 @@ pub mod pallet {
 			let executable = PrefabWasmModule::from_code(code, &schedule)?;
 			let code_len = executable.code_len();
 			ensure!(code_len <= T::Schedule::get().limits.code_len, Error::<T>::CodeTooLarge);
-			let result = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
+			// TODO store trace to local
+			let (r, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
 				origin, executable, &mut gas_meter, &schedule, endowment, data, &salt, None,
-			).map(|(_address, output)| output);
+			);
+			let result = r.map(|(_address, output)| output);
 			gas_meter.into_dispatch_result(
 				result,
 				T::WeightInfo::instantiate_with_code(code_len / 1024, salt.len() as u32 / 1024)
@@ -377,9 +385,10 @@ pub mod pallet {
 			let schedule = T::Schedule::get();
 			let executable = PrefabWasmModule::from_storage(code_hash, &schedule, &mut gas_meter)?;
 			let code_len = executable.code_len();
-			let result = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
+			let (result, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
 				origin, executable, &mut gas_meter, &schedule, endowment, data, &salt, None,
-			).map(|(_address, output)| output);
+			);
+			let result = result.map(|(_address, output)| output);
 			gas_meter.into_dispatch_result(
 				result,
 				T::WeightInfo::instantiate(code_len / 1024, salt.len() as u32 / 1024),
@@ -644,7 +653,7 @@ where
 		gas_limit: Weight,
 		input_data: Vec<u8>,
 		debug: bool,
-	) -> ContractExecResult {
+	) -> (ContractExecResult, NestedRuntime<T>) {
 		let mut gas_meter = GasMeter::new(gas_limit);
 		let schedule = T::Schedule::get();
 		let mut debug_message = if debug {
@@ -652,14 +661,15 @@ where
 		} else {
 			None
 		};
-		let result = ExecStack::<T, PrefabWasmModule<T>>::run_call(
+		let (result, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_call(
 			origin, dest, &mut gas_meter, &schedule, value, input_data, debug_message.as_mut(),
 		);
-		ContractExecResult {
+		let r = ContractExecResult {
 			result: result.map(|r| r.0).map_err(|r| r.0.error),
 			gas_consumed: gas_meter.gas_spent(),
 			debug_message: debug_message.unwrap_or_default(),
-		}
+		};
+		(r, trace)
 	}
 
 	/// Instantiate a new contract.
@@ -687,7 +697,7 @@ where
 		salt: Vec<u8>,
 		compute_projection: bool,
 		debug: bool,
-	) -> ContractInstantiateResult<T::AccountId, T::BlockNumber> {
+	) -> (ContractInstantiateResult<T::AccountId, T::BlockNumber>, NestedRuntime<T>) {
 		let mut gas_meter = GasMeter::new(gas_limit);
 		let schedule = T::Schedule::get();
 		let executable = match code {
@@ -696,21 +706,22 @@ where
 		};
 		let executable = match executable {
 			Ok(executable) => executable,
-			Err(error) => return ContractInstantiateResult {
+			Err(error) => return (ContractInstantiateResult {
 				result: Err(error.into()),
 				gas_consumed: gas_meter.gas_spent(),
 				debug_message: Vec::new(),
-			}
+			}, NestedRuntime::<T>::none())
 		};
 		let mut debug_message = if debug {
 			Some(Vec::new())
 		} else {
 			None
 		};
-		let result = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
+		let (result, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
 			origin, executable, &mut gas_meter, &schedule,
 			endowment, data, &salt, debug_message.as_mut(),
-		).and_then(|(account_id, result)| {
+		);
+		let result = result.and_then(|(account_id, result)| {
 			let rent_projection = if compute_projection {
 				Some(Rent::<T, PrefabWasmModule<T>>::compute_projection(&account_id)
 					.map_err(|_| <Error<T>>::NewContractNotFunded)?)
@@ -724,11 +735,12 @@ where
 				rent_projection,
 			})
 		});
-		ContractInstantiateResult {
+		let r = ContractInstantiateResult {
 			result: result.map_err(|e| e.error),
 			gas_consumed: gas_meter.gas_spent(),
 			debug_message: debug_message.unwrap_or_default(),
-		}
+		};
+		(r, trace)
 	}
 
 	/// Query storage of a specified contract under a specified key.

@@ -1,5 +1,6 @@
 use add_getters_setters::AddSetter;
 use derivative::Derivative;
+#[cfg(feature = "std")]
 use serde::{Serialize, Deserialize};
 
 use sp_std::fmt;
@@ -15,12 +16,11 @@ use crate::{
 
 pub type AccountIdOf<C> = <C as frame_system::Config>::AccountId;
 type BlockNumberOf<C> = <C as frame_system::Config>::BlockNumber;
-type MomentOf<C> = <<C as Config>::Time as frame_support::traits::Time>::Moment;
 
 /// The vector that can be printed as "0x1234"
 #[derive(Clone)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
-pub struct HexVec(Vec<u8>);
+pub struct HexVec(#[cfg_attr(feature = "std", serde(with="sp_core::bytes"))] Vec<u8>);
 
 impl fmt::Debug for HexVec {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -78,6 +78,7 @@ impl<C: Config, T: Wrapper<C>> Drop for EnvTraceGuard<C, T> {
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct Gas {
     #[set]
     amount: Option<u32>,
@@ -90,6 +91,7 @@ impl Gas {
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealSetStorage {
     #[set]
     key: Option<HexVec>,
@@ -98,12 +100,14 @@ pub struct SealSetStorage {
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealClearStorage {
     #[set]
     key: Option<HexVec>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealGetStorage {
     #[set]
     key: Option<HexVec>,
@@ -112,20 +116,24 @@ pub struct SealGetStorage {
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealTransfer<C: Config> {
     #[set]
     account: Option<AccountIdOf<C>>,
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     value: Option<BalanceOf<C>>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealCall<C: Config> {
     #[set]
     callee: Option<AccountIdOf<C>>,
     #[set]
     gas: Weight,
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     value: Option<BalanceOf<C>>,
     #[set]
     input: Option<HexVec>,
@@ -145,12 +153,14 @@ impl<C: Config> SealCall<C> {
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealInstantiate<C: Config> {
     #[set]
     code_hash: Option<HexVec>,
     #[set]
     gas: Weight,
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     value: Option<BalanceOf<C>>,
     #[set]
     input: Option<HexVec>,
@@ -174,18 +184,21 @@ impl<C: Config> SealInstantiate<C> {
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealTerminate<C: Config> {
     #[set]
     beneficiary: Option<AccountIdOf<C>>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealInput {
     #[set]
     buf: Option<HexVec>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealReturn {
     flags: u32,
     #[set]
@@ -202,21 +215,25 @@ impl SealReturn {
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealCaller<C: Config> {
     #[set]
     out: Option<AccountIdOf<C>>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealAddress<C: Config> {
     #[set]
     out: Option<AccountIdOf<C>>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealWeightToFee<C: Config> {
     gas: Weight,
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     out: Option<BalanceOf<C>>,
 }
 
@@ -230,24 +247,30 @@ impl<C: Config> SealWeightToFee<C> {
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealGasLeft {
     #[set]
     out: Option<Weight>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealBalance<C: Config> {
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     out: Option<BalanceOf<C>>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealValueTransferred<C: Config> {
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     out: Option<BalanceOf<C>>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealRandom {
     #[set]
     subject: Option<HexVec>,
@@ -256,6 +279,7 @@ pub struct SealRandom {
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealRandomV1<C: Config> {
     #[set]
     subject: Option<HexVec>,
@@ -265,37 +289,47 @@ pub struct SealRandomV1<C: Config> {
     block_number: Option<BlockNumberOf<C>>,
 }
 
-#[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
-pub struct SealNow<C: Config> {
+#[derive(DefaultNoBound, AddSetter, Clone, HostDebug, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+pub struct SealNow {
+    // Time::Moment does not have `MaybeSerializeDeserialize`, if add this bound, we need to modify
+    // a lot of parts. Thus, we choose to use a simple to do this.
     #[set]
-    out: Option<MomentOf<C>>,
+    out: Option<u64>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealMinimumBalance<C: Config> {
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     out: Option<BalanceOf<C>>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealTombstoneDeposit<C: Config> {
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     out: Option<BalanceOf<C>>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealRestoreTo<C: Config> {
     #[set]
     dest: Option<AccountIdOf<C>>,
     #[set]
     code_hash: Option<HexVec>,
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     rent_allowance: Option<BalanceOf<C>>,
     #[set]
     delta: Option<Vec<HexVec>>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealDepositEvent {
     #[set]
     topics: Option<Vec<HexVec>>,
@@ -304,30 +338,37 @@ pub struct SealDepositEvent {
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealSetRentAllowance<C: Config> {
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     value: Option<BalanceOf<C>>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealRentAllowance<C: Config> {
     #[set]
+    #[serde(with = "crate::helper::serde_opt_num_str")]
     out: Option<BalanceOf<C>>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealPrintln {
     #[set]
     str: Option<String>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealBlockNumber {
     #[set]
     out: Option<u32>,
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealHashSha256 {
     #[set]
     input: Option<HexVec>,
@@ -336,6 +377,7 @@ pub struct SealHashSha256 {
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealHashKeccak256 {
     #[set]
     input: Option<HexVec>,
@@ -344,6 +386,7 @@ pub struct SealHashKeccak256 {
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealHashBlake256 {
     #[set]
     input: Option<HexVec>,
@@ -352,6 +395,7 @@ pub struct SealHashBlake256 {
 }
 
 #[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealHashBlake128 {
     #[set]
     input: Option<HexVec>,
@@ -359,7 +403,8 @@ pub struct SealHashBlake128 {
     out: Option<HexVec>,
 }
 
-#[derive(frame_support::DefaultNoBound, AddSetter, HostDebug, Clone, Wrap)]
+#[derive(Default, AddSetter, HostDebug, Clone, Wrap)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealChainExtension {
     #[set]
     func_id: Option<u32>,
@@ -368,18 +413,21 @@ pub struct SealChainExtension {
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealRentParams<C: Config> {
     #[set]
     params: RentParams<C>,
 }
 
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealRentStatus<C: Config> {
     #[set]
     params: RentStatus<C>,
 }
 
 #[cfg_attr(feature = "std", derive(Derivative))]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 #[derivative(Debug(bound="C: Config"))]
 pub enum EnvTrace<C: Config> {
     #[derivative(Debug = "transparent")]
@@ -419,7 +467,7 @@ pub enum EnvTrace<C: Config> {
     #[derivative(Debug = "transparent")]
     SealRandomV1(SealRandomV1<C>),
     #[derivative(Debug = "transparent")]
-    SealNow(SealNow<C>),
+    SealNow(SealNow),
     #[derivative(Debug = "transparent")]
     SealMinimumBalance(SealMinimumBalance<C>),
     #[derivative(Debug = "transparent")]

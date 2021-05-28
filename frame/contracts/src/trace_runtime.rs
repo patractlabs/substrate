@@ -11,7 +11,8 @@ use crate::{
 };
 
 /// The host function call stack.
-struct EnvTraceList<C: Config>(Vec<EnvTrace<C>>);
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct EnvTraceList<C: Config>(pub Vec<EnvTrace<C>>);
 
 impl<C: Config> fmt::Debug for EnvTraceList<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -30,8 +31,10 @@ impl<C: Config> fmt::Debug for EnvTraceList<C> {
 
 
 #[derive(PartialEq, Eq, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExecReturnValueTrace {
 	pub flags: u32,
+    #[cfg_attr(feature = "std", serde(with="sp_core::bytes"))]
 	pub data: Vec<u8>,
 }
 
@@ -75,12 +78,14 @@ pub fn into_exec_result_trace(ext_result: &ExecResult) -> ExecResultTrace {
 }
 
 /// Record the contract execution context.
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct NestedRuntime<C: Config> {
 	/// Current depth
-    depth: usize,
+    depth: u32,
 	/// The current contract execute result
 	ext_result: ExecResultTrace,
 	/// The value in sandbox successful result
+    #[serde(with = "sp_sandbox::serde_opt_wasm_returnvalue")]
 	sandbox_result_ok: Option<ReturnValue>,
 	/// Who call the current contract
     caller: AccountIdOf<C>,
@@ -91,6 +96,7 @@ pub struct NestedRuntime<C: Config> {
 	/// The input arguments
     args: Option<HexVec>,
 	/// The value in call or the endowment in instantiate
+	#[serde(with = "crate::helper::serde_num_str")]
     value: BalanceOf<C>,
 	/// The gas limit when this contract is called
     gas_limit: Weight,
@@ -156,7 +162,7 @@ impl<C: Config> fmt::Debug for NestedRuntime<C> {
 
 impl<C: Config> NestedRuntime<C> {
     pub fn new(
-        depth: usize,
+        depth: u32,
         caller: AccountIdOf<C>,
         self_account: AccountIdOf<C>,
         selector: Option<HexVec>,
@@ -186,6 +192,18 @@ impl<C: Config> NestedRuntime<C> {
         }
     }
 
+    pub fn none() -> Self {
+        Self::new(
+            0,
+            Default::default(),
+            Default::default(),
+            None,
+            None,
+            sp_runtime::traits::Zero::zero(),
+            0
+        )
+    }
+
     fn is_top_level(&self) -> bool {
         self.depth == 1
     }
@@ -205,6 +223,10 @@ impl<C: Config> NestedRuntime<C> {
     pub fn env_trace_push(&mut self, host_func: EnvTrace<C>) {
         let env_trace = &mut self.env_trace;
         env_trace.0.push(host_func);
+    }
+
+    pub fn modify_env_trace(&mut self) -> &mut EnvTraceList<C> {
+        &mut self.env_trace
     }
 
     pub fn set_trap_reason(&mut self, trap_reason: TrapReason) {
@@ -285,7 +307,7 @@ pub fn with_nested_runtime<F, R, C: Config>(
     depth: usize,
     self_account: AccountIdOf<C>,
     f: F,
-) -> R
+) -> (R, Option<NestedRuntime<C>>)
     where
         F: FnOnce() -> R {
     let (selector, args) = if input_data.len() > 4 {
@@ -299,7 +321,7 @@ pub fn with_nested_runtime<F, R, C: Config>(
     };
 
     let mut nest = NestedRuntime::new(
-        depth,
+        depth as u32,
         self_account,
         dest,
         selector,
@@ -309,11 +331,13 @@ pub fn with_nested_runtime<F, R, C: Config>(
     );
 
     if nest.is_top_level() {
-        set_and_run_with_runtime::<C, F, R>(&mut nest, f)
+        let r = set_and_run_with_runtime::<C, F, R>(&mut nest, f);
+        (r, Some(nest))
     } else {
-        with_runtime::<C, _, _>(|r| {
+        let r = with_runtime::<C, _, _>(|r| {
             r.nested(nest);
             set_and_run_with_runtime(r.nest_pop(), f)
-        }).unwrap()
+        }).expect("Must not be the top frame contract");
+        (r, None)
     }
 }
