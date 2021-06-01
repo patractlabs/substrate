@@ -109,7 +109,7 @@ pub struct NestedRuntime<C: Config> {
 	/// The trap in host function execution
     trap_reason: Option<TrapReason>,
 	/// Nested contract execution context
-    nest: Vec<NestedRuntime<C>>,
+    nests: Vec<NestedRuntime<C>>,
 }
 
 /// Print `Option<T>`, make `Some` transparent.
@@ -154,7 +154,7 @@ impl<C: Config> fmt::Debug for NestedRuntime<C> {
 			}
 		}
 
-		debug_struct.field("nest", &self.nest);
+		debug_struct.field("nests", &self.nests);
 		debug_struct.finish()
 
     }
@@ -186,7 +186,7 @@ impl<C: Config> NestedRuntime<C> {
 			gas_limit,
 			gas_left: gas_limit,
 			env_trace: EnvTraceList(Vec::new()),
-			nest: Vec::new(),
+			nests: Vec::new(),
 			wasm_error: None,
 			trap_reason: None,
         }
@@ -208,12 +208,16 @@ impl<C: Config> NestedRuntime<C> {
         self.depth == 1
     }
 
-    pub fn nested(&mut self, nest: NestedRuntime<C>) {
-        self.nest.push(nest);
+    pub fn push_nest(&mut self, nest: NestedRuntime<C>) {
+        self.nests.push(nest);
     }
 
-    pub fn nest_pop(&mut self) -> &mut NestedRuntime<C> {
-        self.nest.last_mut().expect("Must not be empty after `nested`")
+    pub fn last_nest_mut(&mut self) -> &mut NestedRuntime<C> {
+        self.nests.last_mut().expect("Must not be empty after `nested`")
+    }
+
+    pub fn nests_mut(&mut self) -> &mut Vec<NestedRuntime<C>> {
+        &mut self.nests
     }
 
     pub fn set_gas_left(&mut self, left: Weight) {
@@ -335,8 +339,8 @@ pub fn with_nested_runtime<F, R, C: Config>(
         (r, Some(nest))
     } else {
         let r = with_runtime::<C, _, _>(|r| {
-            r.nested(nest);
-            set_and_run_with_runtime(r.nest_pop(), f)
+            r.push_nest(nest);
+            set_and_run_with_runtime(r.last_nest_mut(), f)
         }).expect("Must not be the top frame contract");
         (r, None)
     }
