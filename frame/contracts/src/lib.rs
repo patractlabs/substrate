@@ -273,6 +273,7 @@ pub mod pallet {
 	where
 		T::AccountId: UncheckedFrom<T::Hash>,
 		T::AccountId: AsRef<[u8]>,
+		T: MaybeSerializeDeserialize,
 	{
 		/// Makes a call to an account, optionally transferring some balance.
 		///
@@ -295,10 +296,12 @@ pub mod pallet {
 			let dest = T::Lookup::lookup(dest)?;
 			let mut gas_meter = GasMeter::new(gas_limit);
 			let schedule = T::Schedule::get();
-			// TODO store trace to local
+
 			let (r, trace) =  ExecStack::<T, PrefabWasmModule<T>>::run_call(
 				origin, dest, &mut gas_meter, &schedule, value, data, None,
 			);
+			Self::log_tracing(trace);
+
 			let (result, code_len) = match r {
 				Ok((output, len)) => (Ok(output), len),
 				Err((err, len)) => (Err(err), len),
@@ -350,10 +353,12 @@ pub mod pallet {
 			let executable = PrefabWasmModule::from_code(code, &schedule)?;
 			let code_len = executable.code_len();
 			ensure!(code_len <= T::Schedule::get().limits.code_len, Error::<T>::CodeTooLarge);
-			// TODO store trace to local
+
 			let (r, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
 				origin, executable, &mut gas_meter, &schedule, endowment, data, &salt, None,
 			);
+			Self::log_tracing(trace);
+
 			let result = r.map(|(_address, output)| output);
 			gas_meter.into_dispatch_result(
 				result,
@@ -388,6 +393,8 @@ pub mod pallet {
 			let (result, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
 				origin, executable, &mut gas_meter, &schedule, endowment, data, &salt, None,
 			);
+			Self::log_tracing(trace);
+
 			let result = result.map(|(_address, output)| output);
 			gas_meter.into_dispatch_result(
 				result,
@@ -447,6 +454,20 @@ pub mod pallet {
 					T::WeightInfo::claim_surcharge(code_len / 1024)
 				)),
 			}
+		}
+	}
+
+	impl<T: Config> Pallet<T>
+	where
+		T: MaybeSerializeDeserialize,
+	{
+		fn log_tracing(trace: NestedRuntime<T>) {
+			use sp_runtime::SaturatedConversion;
+
+			let s = serde_json::to_string(&trace).expect("must could serialize to json.");
+			let block_number = frame_system::Pallet::<T>::block_number().saturated_into::<u32>();
+			let index = frame_system::Pallet::<T>::extrinsic_index().expect("must be a extrinsic now.");
+			ep_io::contract_tracing::store_tracing(block_number, index, s.as_bytes().to_vec());
 		}
 	}
 

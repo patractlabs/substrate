@@ -1561,6 +1561,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68b91989ae21441195d7d9b9993a2f9295c7e1a8c96255d8b729accddc124797"
 
 [[package]]
+name = "ep-extensions"
+version = "0.1.0"
+dependencies = [
+ "sp-externalities 0.9.0 (git+https://github.com/paritytech/substrate?branch=master)",
+]
+
+[[package]]
+name = "ep-io"
+version = "0.1.0"
+dependencies = [
+ "ep-extensions",
+ "sp-externalities 0.9.0 (git+https://github.com/paritytech/substrate?branch=master)",
+ "sp-runtime-interface 3.0.0 (git+https://github.com/paritytech/substrate?branch=master)",
+ "sp-std 3.0.0 (git+https://github.com/paritytech/substrate?branch=master)",
+]
+
+[[package]]
 name = "ep-sandbox"
 version = "0.2.1"
 dependencies = [
@@ -4940,6 +4957,7 @@ dependencies = [
  "assert_matches",
  "derivative",
  "environmental",
+ "ep-io",
  "ep-sandbox",
  "frame-benchmarking 3.1.0 (git+https://github.com/paritytech/substrate?branch=master)",
  "frame-support 3.0.0 (git+https://github.com/paritytech/substrate?branch=master)",
@@ -4960,6 +4978,7 @@ dependencies = [
  "rand 0.8.3",
  "rand_pcg 0.3.0",
  "serde",
+ "serde_json",
  "smallvec 1.6.1",
  "sp-core 3.0.0 (git+https://github.com/paritytech/substrate?branch=master)",
  "sp-io 3.0.0 (git+https://github.com/paritytech/substrate?branch=master)",
