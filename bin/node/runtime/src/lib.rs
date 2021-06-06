@@ -29,12 +29,13 @@ use frame_support::{
 	weights::{
 		Weight, IdentityFee,
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
-		DispatchClass,
+		DispatchClass, Pays,
 	},
 	traits::{
 		Currency, Imbalance, KeyOwnerProofSystem, OnUnbalanced, LockIdentifier,
 		U128CurrencyToVote,
 	},
+	dispatch::DispatchError,
 };
 use frame_system::{
 	EnsureRoot, EnsureOneOf,
@@ -73,6 +74,7 @@ use pallet_session::{historical as pallet_session_historical};
 use sp_inherents::{InherentData, CheckInherentsResult};
 use static_assertions::const_assert;
 use pallet_contracts::weights::WeightInfo;
+use pallet_alliance::{IdentityVerifier, ProposalProvider, ProposalIndex};
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -1089,6 +1091,69 @@ impl pallet_gilt::Config for Runtime {
 	type WeightInfo = pallet_gilt::weights::SubstrateWeight<Runtime>;
 }
 
+parameter_types! {
+	pub const AllianceMotionDuration: BlockNumber = 5 * DAYS;
+	pub const AllianceMaxProposals: u32 = 100;
+	pub const AllianceMaxMembers: u32 = 100;
+}
+
+type AllianceCollective = pallet_collective::Instance3;
+impl pallet_collective::Config<AllianceCollective> for Runtime {
+	type Origin = Origin;
+	type Proposal = Call;
+	type Event = Event;
+	type MotionDuration = AllianceMotionDuration;
+	type MaxProposals = AllianceMaxProposals;
+	type MaxMembers = AllianceMaxMembers;
+	type DefaultVote = pallet_collective::PrimeDefaultVote;
+	type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
+}
+
+pub struct AllyIdentityVerifier;
+impl IdentityVerifier<AccountId> for AllyIdentityVerifier {
+	fn verify_identity(who: AccountId, field: u64) -> bool {
+		Identity::verify_identity(who.clone(), field) || Identity::verify_parent_identity(who, field)
+	}
+}
+
+pub struct AlliProposalProvider;
+impl ProposalProvider<AccountId, Hash, Call> for AlliProposalProvider {
+	fn propose_proposal(who: AccountId, threshold: u32, proposal: Call,
+						proposal_hash: Hash) -> Result<u32, DispatchError> {
+		AllianceMotion::do_propose(who, threshold, proposal, proposal_hash)
+	}
+
+	fn veto_proposal(proposal_hash: Hash) -> u32 {
+		AllianceMotion::do_disapprove_proposal(proposal_hash)
+	}
+
+	fn close_proposal(proposal_hash: Hash,
+					  proposal_index: ProposalIndex,
+					  proposal_weight_bound: Weight,
+					  length_bound: u32,
+	) -> Result<(Weight, Pays), DispatchError> {
+		AllianceMotion::close_proposal(proposal_hash, proposal_index, proposal_weight_bound, length_bound)
+	}
+
+	fn proposal_of(proposal_hash: Hash) -> Option<Call> {
+		AllianceMotion::proposal_of(proposal_hash)
+	}
+}
+
+impl pallet_alliance::Config for Runtime {
+	type Event = Event;
+	type Proposal = Call;
+	type FounderInitOrigin = pallet_collective::EnsureProportionAtLeast<_1, _2, AccountId, CouncilCollective>;
+	type MajorityOrigin = pallet_collective::EnsureProportionMoreThan<_2, _3, AccountId, AllianceCollective>;
+	type Currency = Balances;
+	type InitializeMembers = AllianceMotion;
+	type MembershipChanged = AllianceMotion;
+	type Slashed = Treasury;
+	type IdentityVerifier = AllyIdentityVerifier;
+	type ProposalProvider = AlliProposalProvider;
+	type CandidateDeposit = CandidateDeposit;
+}
+
 construct_runtime!(
 	pub enum Runtime where
 		Block = Block,
@@ -1133,6 +1198,8 @@ construct_runtime!(
 		Mmr: pallet_mmr::{Pallet, Storage},
 		Lottery: pallet_lottery::{Pallet, Call, Storage, Event<T>},
 		Gilt: pallet_gilt::{Pallet, Call, Storage, Event<T>, Config},
+		AllianceMotion: pallet_collective::<Instance3>::{Pallet, Call, Storage, Origin<T>, Event<T>, Config<T>},
+		Alliance: pallet_alliance::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
