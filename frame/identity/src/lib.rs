@@ -78,8 +78,9 @@ mod benchmarking;
 pub mod weights;
 
 use sp_std::prelude::*;
-use sp_std::{fmt::Debug, ops::Add, iter::once};
+use sp_std::{fmt::Debug, ops::Add, iter::once, convert::TryFrom};
 use enumflags2::BitFlags;
+use num_enum::TryFromPrimitive;
 use codec::{Encode, Decode};
 use sp_runtime::RuntimeDebug;
 use sp_runtime::traits::{StaticLookup, Zero, AppendZerosInput, Saturating};
@@ -217,7 +218,7 @@ impl<
 /// The fields that we use to identify the owner of an account with. Each corresponds to a field
 /// in the `IdentityInfo` struct.
 #[repr(u64)]
-#[derive(Encode, Decode, Clone, Copy, PartialEq, Eq, BitFlags, RuntimeDebug)]
+#[derive(Encode, Decode, Clone, Copy, PartialEq, Eq, BitFlags, RuntimeDebug, TryFromPrimitive)]
 pub enum IdentityField {
 	Display        = 0b0000000000000000000000000000000000000000000000000000000000000001,
 	Legal          = 0b0000000000000000000000000000000000000000000000000000000000000010,
@@ -1159,6 +1160,34 @@ impl<T: Config> Pallet<T> {
 			.into_iter()
 			.filter_map(|a| SuperOf::<T>::get(&a).map(|x| (a, x.1)))
 			.collect()
+	}
+
+	/// Verify the identity info of an account by the identity field.
+	pub fn verify_identity(who: T::AccountId, field: u64) -> bool {
+		if let Some(identity) = IdentityOf::<T>::get(&who).map(|registration| registration.info) {
+			match IdentityField::try_from(field) {
+				Ok(IdentityField::Display) => identity.display != Data::None,
+				Ok(IdentityField::Legal) => identity.legal != Data::None,
+				Ok(IdentityField::Web) => identity.web != Data::None,
+				Ok(IdentityField::Riot) => identity.riot != Data::None,
+				Ok(IdentityField::Email) => identity.email != Data::None,
+				Ok(IdentityField::PgpFingerprint) => identity.pgp_fingerprint.is_some(),
+				Ok(IdentityField::Image) => identity.image != Data::None,
+				Ok(IdentityField::Twitter) => identity.twitter != Data::None,
+				Err(_) => false,
+			}
+		} else {
+			false
+		}
+	}
+
+	/// Verify the identity info of an account's parent  by the identity field.
+	pub fn verify_parent_identity(who: T::AccountId, field: u64) -> bool {
+		if let Some(parent) = SuperOf::<T>::get(&who) {
+			Self::verify_identity(parent.0, field)
+		} else {
+			false
+		}
 	}
 }
 

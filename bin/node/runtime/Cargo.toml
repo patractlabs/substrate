@@ -89,6 +89,7 @@ pallet-transaction-payment-rpc-runtime-api = { version = "3.0.0", default-featur
 pallet-transaction-storage = { version = "3.0.0", default-features = false, path = "../../../frame/transaction-storage" }
 pallet-uniques = { version = "3.0.0", default-features = false, path = "../../../frame/uniques" }
 pallet-vesting = { version = "3.0.0", default-features = false, path = "../../../frame/vesting" }
+pallet-alliance = { version = "3.0.0", default-features = false, path = "../../../frame/alliance" }
 
 max-encoded-len = { version = "3.0.0", default-features = false, path = "../../../max-encoded-len", features = [ "derive" ] }
 
@@ -167,6 +168,7 @@ std = [
 	"frame-try-runtime/std",
 	"sp-npos-elections/std",
 	"max-encoded-len/std",
+	"pallet-alliance/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking",
