@@ -4157,7 +4157,6 @@ dependencies = [
  "node-primitives",
  "node-rpc",
  "node-runtime",
- "pallet-alliance",
  "pallet-authority-discovery",
  "pallet-balances",
  "pallet-contracts",

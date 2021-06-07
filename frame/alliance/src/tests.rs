@@ -11,7 +11,7 @@ fn propose_works() {
 	new_test_ext().execute_with(|| {
 		let proposal = make_proposal(42);
 		let proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
-		let hash: H256 = proposal.blake2_256().into();
+		let hash = BlakeTwo256::hash_of(&proposal);
 		let end = 4;
 		assert_ok!(Alliance::propose(Origin::signed(1), Box::new(proposal.clone())));
 		assert_eq!(*AllianceMotion::proposals(), vec![hash]);
