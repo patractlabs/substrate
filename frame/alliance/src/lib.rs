@@ -19,17 +19,13 @@
 
 use frame_support::{
 	codec::{Decode, Encode},
-	dispatch::{
-		DispatchError, DispatchResult, Dispatchable, GetDispatchInfo, Parameter, PostDispatchInfo,
-	},
-	ensure,
+	dispatch::{DispatchError, DispatchResult, Dispatchable, GetDispatchInfo, PostDispatchInfo},
 	traits::{
-		ChangeMembers, Currency, Get, InitializeMembers, IsSubType, IsType, LockableCurrency,
-		OnUnbalanced, ReservableCurrency,
+		ChangeMembers, Currency, InitializeMembers, IsSubType, LockableCurrency, OnUnbalanced,
+		ReservableCurrency,
 	},
 	weights::{Pays, Weight},
 };
-use frame_system::ensure_signed;
 pub use pallet::*;
 use sp_runtime::{
 	traits::{Bounded, Hash, StaticLookup, Zero},
@@ -151,6 +147,7 @@ pub mod pallet {
 		type ProposalProvider: ProposalProvider<Self::AccountId, Self::Hash, Self::Proposal>;
 
 		/// The minimum amount of a deposit required for submit candidacy.
+		#[pallet::constant]
 		type CandidateDeposit: Get<BalanceOf<Self, I>>;
 	}
 
