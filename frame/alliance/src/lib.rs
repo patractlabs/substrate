@@ -168,6 +168,7 @@ pub mod pallet {
 		NoIdentity,
 		ProposalMissing,
 		ProposalNotVetoable,
+		FoundersAlreadyInitialized,
 	}
 
 	#[pallet::event]
@@ -249,6 +250,10 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config<I>, I: 'static> GenesisBuild<T, I> for GenesisConfig<T, I> {
 		fn build(&self) {
+			for m in self.founders.iter().chain(self.fellows.iter()) {
+				assert!(Pallet::<T, I>::verify_identity(m), "Member does not set identity!");
+			}
+
 			if !self.founders.is_empty() {
 				assert!(
 					<Members<T, I>>::get(MemberRole::Founder).is_empty(),
@@ -263,6 +268,10 @@ pub mod pallet {
 				);
 				Members::<T, I>::insert(MemberRole::Fellow, self.fellows.clone());
 			}
+
+			T::InitializeMembers::initialize_members(
+				&[self.founders.as_slice(), self.fellows.as_slice()].concat(),
+			)
 		}
 	}
 
@@ -364,6 +373,20 @@ pub mod pallet {
 			prime: Option<T::AccountId>,
 		) -> DispatchResult {
 			T::FounderInitOrigin::ensure_origin(origin)?;
+			ensure!(
+				<Members<T, I>>::get(MemberRole::Founder).is_empty(),
+				Error::<T, I>::FoundersAlreadyInitialized
+			);
+			for founder in founders.iter() {
+				ensure!(Self::verify_identity(founder), Error::<T, I>::NoIdentity);
+			}
+			if prime.is_some() {
+				ensure!(
+					founders.contains(&prime.clone().unwrap()),
+					Error::<T, I>::NotElevatedMember
+				);
+			}
+
 			let mut founders = founders.clone();
 			founders.sort();
 			T::InitializeMembers::initialize_members(&founders);
@@ -380,6 +403,12 @@ pub mod pallet {
 			prime: Option<T::AccountId>,
 		) -> DispatchResult {
 			T::MajorityOrigin::ensure_origin(origin)?;
+			if prime.is_some() {
+				ensure!(
+					Self::is_elevated_member(&prime.clone().unwrap()),
+					Error::<T, I>::NotElevatedMember
+				);
+			}
 
 			T::MembershipChanged::set_prime(prime.clone());
 			Self::deposit_event(Event::PrimeSet(prime));
@@ -433,11 +462,7 @@ pub mod pallet {
 			);
 
 			// check user self or parent should has verified identity to reuse display name and website.
-			ensure!(
-				T::IdentityVerifier::verify_identity(who.clone(), IDENTITY_FIELD_DISPLAY) &&
-					T::IdentityVerifier::verify_identity(who.clone(), IDENTITY_FIELD_WEB),
-				Error::<T, I>::NoIdentity
-			);
+			ensure!(Self::verify_identity(&who), Error::<T, I>::NoIdentity);
 
 			let deposit = T::CandidateDeposit::get();
 			T::Currency::reserve(&who, deposit)
@@ -477,11 +502,7 @@ pub mod pallet {
 			);
 
 			// check user self or parent should has verified identity to reuse display name and website.
-			ensure!(
-				T::IdentityVerifier::verify_identity(who.clone(), IDENTITY_FIELD_DISPLAY) &&
-					T::IdentityVerifier::verify_identity(who.clone(), IDENTITY_FIELD_WEB),
-				Error::<T, I>::NoIdentity
-			);
+			ensure!(Self::verify_identity(&who), Error::<T, I>::NoIdentity);
 
 			Self::add_candidate(CandidacyForm {
 				who: who.clone(),
@@ -727,10 +748,15 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		<Blacklist<T, I>>::put(&blacklist);
 		Ok(())
 	}
+
+	fn verify_identity(who: &T::AccountId) -> bool {
+		T::IdentityVerifier::verify_identity(who, IDENTITY_FIELD_DISPLAY) &&
+			T::IdentityVerifier::verify_identity(who, IDENTITY_FIELD_WEB)
+	}
 }
 
 pub trait IdentityVerifier<AccountId: Clone + Ord> {
-	fn verify_identity(who: AccountId, fields: u64) -> bool;
+	fn verify_identity(who: &AccountId, fields: u64) -> bool;
 }
 
 pub trait ProposalProvider<AccountId, Hash, Proposal> {

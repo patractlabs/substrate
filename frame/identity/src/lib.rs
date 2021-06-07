@@ -1163,8 +1163,8 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Verify the identity info of an account by the identity field.
-	pub fn verify_identity(who: T::AccountId, field: u64) -> bool {
-		if let Some(identity) = IdentityOf::<T>::get(&who).map(|registration| registration.info) {
+	pub fn verify_identity(who: &T::AccountId, field: u64) -> bool {
+		if let Some(identity) = IdentityOf::<T>::get(who).map(|registration| registration.info) {
 			match IdentityField::try_from(field) {
 				Ok(IdentityField::Display) => identity.display != Data::None,
 				Ok(IdentityField::Legal) => identity.legal != Data::None,
@@ -1182,9 +1182,9 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Verify the identity info of an account's parent  by the identity field.
-	pub fn verify_parent_identity(who: T::AccountId, field: u64) -> bool {
-		if let Some(parent) = SuperOf::<T>::get(&who) {
-			Self::verify_identity(parent.0, field)
+	pub fn verify_parent_identity(who: &T::AccountId, field: u64) -> bool {
+		if let Some(parent) = SuperOf::<T>::get(who) {
+			Self::verify_identity(&parent.0, field)
 		} else {
 			false
 		}
