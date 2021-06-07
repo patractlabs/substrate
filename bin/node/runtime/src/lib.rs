@@ -1111,8 +1111,8 @@ impl pallet_collective::Config<AllianceCollective> for Runtime {
 
 pub struct AllyIdentityVerifier;
 impl IdentityVerifier<AccountId> for AllyIdentityVerifier {
-	fn verify_identity(who: AccountId, field: u64) -> bool {
-		Identity::verify_identity(who.clone(), field) || Identity::verify_parent_identity(who, field)
+	fn verify_identity(who: &AccountId, field: u64) -> bool {
+		Identity::verify_identity(who, field) || Identity::verify_parent_identity(who, field)
 	}
 }
 
