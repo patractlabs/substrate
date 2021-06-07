@@ -31,10 +31,15 @@ use frame_support::{
     },
     ensure,
     weights::{Weight, Pays},
-    traits::{ChangeMembers, OnUnbalanced, Currency, Get, LockableCurrency, ReservableCurrency, InitializeMembers, IsType},
+    traits::{ChangeMembers, OnUnbalanced, Currency, Get, LockableCurrency, ReservableCurrency, InitializeMembers, IsType, IsSubType},
 };
 use frame_system::ensure_signed;
 pub use pallet::*;
+
+#[cfg(test)]
+pub mod mock;
+#[cfg(test)]
+mod tests;
 
 /// Simple index type for proposal counting.
 pub type ProposalIndex = u32;
@@ -55,8 +60,7 @@ pub enum MemberRole {
 }
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug)]
-#[cfg_attr(test, derive(Default))]
-pub enum IdentityInfo<AccountId> {
+pub enum MemberIdentity<AccountId> {
     /// The member has been chosen to be skeptic and has not yet taken any action.
     Website(Vec<u8>),
     /// The member has rejected the candidate's application.
@@ -100,7 +104,7 @@ pub mod pallet {
 
     #[pallet::pallet]
     #[pallet::generate_store(pub (super) trait Store)]
-    pub struct Pallet<T, I = ()>(sp_std::marker::PhantomData<(T, I)>);
+    pub struct Pallet<T, I = ()>(PhantomData<(T, I)>);
 
     #[pallet::config]
     /// The module configuration trait.
@@ -110,7 +114,8 @@ pub mod pallet {
 
         /// The outer call dispatch type.
         type Proposal: Parameter + Dispatchable<Origin=Self::Origin, PostInfo=PostDispatchInfo>
-        + GetDispatchInfo + From<frame_system::Call<Self>> + IsType<<Self as frame_system::Config>::Call>;
+        + GetDispatchInfo + From<frame_system::Call<Self>> + IsSubType<Call<Self>>
+        + IsType<<Self as frame_system::Config>::Call>;
 
         /// The origin that is allowed to call `init_founder`.
         type FounderInitOrigin: EnsureOrigin<Self::Origin>;
@@ -168,8 +173,8 @@ pub mod pallet {
         MemberAdded(T::AccountId, MemberRole),
         MemberRetire(T::AccountId),
         MemberKicked(T::AccountId),
-        BlacklistAdded(IdentityInfo<T::AccountId>),
-        BlacklistRemoved(IdentityInfo<T::AccountId>),
+        BlacklistAdded(MemberIdentity<T::AccountId>),
+        BlacklistRemoved(MemberIdentity<T::AccountId>),
         PublishAnnouncement(T::AccountId, cid::Cid),
     }
 
@@ -217,7 +222,30 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn blacklist)]
     pub type Blacklist<T: Config<I>, I: 'static = ()> =
-    StorageValue<_, Vec<(T::BlockNumber, IdentityInfo<T::AccountId>)>, ValueQuery>;
+    StorageValue<_, Vec<(T::BlockNumber, MemberIdentity<T::AccountId>)>, ValueQuery>;
+
+    #[pallet::genesis_config]
+    pub struct GenesisConfig<T: Config<I>, I: 'static = ()> {
+        pub founders: Vec<T::AccountId>,
+        pub phantom: PhantomData<(T, I)>,
+    }
+
+    #[cfg(feature = "std")]
+    impl<T: Config<I>, I: 'static> Default for GenesisConfig<T, I> {
+        fn default() -> Self {
+            Self {
+                founders: Vec::new(),
+                phantom: Default::default(),
+            }
+        }
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config<I>, I: 'static> GenesisBuild<T, I> for GenesisConfig<T, I> {
+        fn build(&self) {
+            Members::<T, I>::insert(MemberRole::Founder, self.founders.clone());
+        }
+    }
 
     #[pallet::call]
     impl<T: Config<I>, I: 'static> Pallet<T, I> {
@@ -323,7 +351,7 @@ pub mod pallet {
             let candidates = <Candidates<T, I>>::get();
             ensure!(!Self::is_candidate(&candidates, &who),Error::<T, I>::AlreadyCandidate);
             ensure!(!Self::is_member(&who, None).0, Error::<T, I>::AlreadyMember);
-            ensure!(!Self::is_blacklist(&IdentityInfo::Address(who.clone())), Error::<T, I>::AlreadyInBlacklist);
+            ensure!(!Self::is_blacklist(&MemberIdentity::Address(who.clone())), Error::<T, I>::AlreadyInBlacklist);
 
             // check user self or parent should has verified identity to reuse display name and website.
             ensure!(T::IdentityVerifier::verify_identity(who.clone(), IDENTITY_FIELD_DISPLAY) &&
@@ -351,7 +379,7 @@ pub mod pallet {
             let candidates = <Candidates<T, I>>::get();
             ensure!(!Self::is_candidate(&candidates, &who),Error::<T, I>::AlreadyCandidate);
             ensure!(!Self::is_member(&who, None).0, Error::<T, I>::AlreadyMember);
-            ensure!(!Self::is_blacklist(&IdentityInfo::Address(who.clone())), Error::<T, I>::AlreadyInBlacklist);
+            ensure!(!Self::is_blacklist(&MemberIdentity::Address(who.clone())), Error::<T, I>::AlreadyInBlacklist);
 
             // check user self or parent should has verified identity to reuse display name and website.
             ensure!(T::IdentityVerifier::verify_identity(who.clone(), IDENTITY_FIELD_DISPLAY) &&
@@ -371,7 +399,7 @@ pub mod pallet {
             let candidates = <Candidates<T, I>>::get();
             ensure!(Self::is_candidate(&candidates, &candidate), Error::<T, I>::NotCandidate);
             ensure!(!Self::is_member(&candidate, None).0, Error::<T, I>::AlreadyMember);
-            ensure!(!Self::is_blacklist(&IdentityInfo::Address(candidate.clone())), Error::<T, I>::AlreadyInBlacklist);
+            ensure!(!Self::is_blacklist(&MemberIdentity::Address(candidate.clone())), Error::<T, I>::AlreadyInBlacklist);
 
             match Self::remove_candidate(&candidate)? {
                 CandidacyKind::Submit(deposit) => {
@@ -445,7 +473,7 @@ pub mod pallet {
 
         /// Add websites or addresses into blacklist.
         #[pallet::weight(0)]
-        pub(super) fn add_blacklist(origin: OriginFor<T>, info: IdentityInfo<T::AccountId>) -> DispatchResult {
+        pub(super) fn add_blacklist(origin: OriginFor<T>, info: MemberIdentity<T::AccountId>) -> DispatchResult {
             T::MajorityOrigin::ensure_origin(origin)?;
             ensure!(!Self::is_blacklist(&info), Error::<T, I>::AlreadyInBlacklist);
 
@@ -456,7 +484,7 @@ pub mod pallet {
 
         /// Remove websites or addresses form blacklist.
         #[pallet::weight(0)]
-        pub(super) fn remove_blacklist(origin: OriginFor<T>, info: IdentityInfo<T::AccountId>) -> DispatchResult {
+        pub(super) fn remove_blacklist(origin: OriginFor<T>, info: MemberIdentity<T::AccountId>) -> DispatchResult {
             T::MajorityOrigin::ensure_origin(origin)?;
             ensure!(Self::is_blacklist(&info), Error::<T, I>::NotInBlacklist);
 
@@ -564,13 +592,13 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
     }
 
     /// Check if a identity info is in blacklist.
-    fn is_blacklist(info: &IdentityInfo<T::AccountId>) -> bool {
+    fn is_blacklist(info: &MemberIdentity<T::AccountId>) -> bool {
         let blacklist = <Blacklist<T, I>>::get();
         blacklist.iter().find(|i| i.1 == *info).is_some()
     }
 
     /// Add a identity info to the blacklist set.
-    fn blacklist_add(number: T::BlockNumber, info: &IdentityInfo<T::AccountId>) -> DispatchResult {
+    fn blacklist_add(number: T::BlockNumber, info: &MemberIdentity<T::AccountId>) -> DispatchResult {
         let mut blacklist = <Blacklist<T, I>>::get();
         let insert_position = blacklist
             .binary_search_by(|&(a, _)| a.cmp(&number))
@@ -582,7 +610,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
     }
 
     /// Remove a identity `info` from the blacklist.
-    fn blacklist_remove(info: &IdentityInfo<T::AccountId>) -> DispatchResult {
+    fn blacklist_remove(info: &MemberIdentity<T::AccountId>) -> DispatchResult {
         let mut blacklist = <Blacklist<T, I>>::get();
         let position = blacklist
             .iter()
