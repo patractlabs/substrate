@@ -114,7 +114,7 @@ pub mod pallet {
 
         /// The outer call dispatch type.
         type Proposal: Parameter + Dispatchable<Origin=Self::Origin, PostInfo=PostDispatchInfo>
-        + GetDispatchInfo + From<frame_system::Call<Self>> + IsSubType<Call<Self>>
+        + GetDispatchInfo + From<frame_system::Call<Self>> + IsSubType<Call<Self, I>>
         + IsType<<Self as frame_system::Config>::Call>;
 
         /// The origin that is allowed to call `init_founder`.
@@ -150,6 +150,7 @@ pub mod pallet {
         AlreadyCandidate,
         AlreadyMember,
         AlreadyElevated,
+        AlreadyInBlacklist,
         NotCandidate,
         NotAlly,
         NotFounder,
@@ -157,10 +158,10 @@ pub mod pallet {
         NotElevatedMember,
         SuspendedMember,
         InsufficientCandidateFunds,
-        AlreadyInBlacklist,
         NotInBlacklist,
         NoIdentity,
         ProposalMissing,
+        ProposalNotVetoable,
     }
 
     #[pallet::event]
@@ -175,7 +176,8 @@ pub mod pallet {
         MemberKicked(T::AccountId),
         BlacklistAdded(MemberIdentity<T::AccountId>),
         BlacklistRemoved(MemberIdentity<T::AccountId>),
-        PublishAnnouncement(T::AccountId, cid::Cid),
+        AnnouncementPublish(T::AccountId, cid::Cid),
+        PrimeSet(Option<T::AccountId>),
     }
 
     /// A ipfs cid of the rules of this alliance concerning membership.
@@ -227,6 +229,7 @@ pub mod pallet {
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config<I>, I: 'static = ()> {
         pub founders: Vec<T::AccountId>,
+        pub fellows: Vec<T::AccountId>,
         pub phantom: PhantomData<(T, I)>,
     }
 
@@ -235,6 +238,7 @@ pub mod pallet {
         fn default() -> Self {
             Self {
                 founders: Vec::new(),
+                fellows: Vec::new(),
                 phantom: Default::default(),
             }
         }
@@ -243,7 +247,14 @@ pub mod pallet {
     #[pallet::genesis_build]
     impl<T: Config<I>, I: 'static> GenesisBuild<T, I> for GenesisConfig<T, I> {
         fn build(&self) {
-            Members::<T, I>::insert(MemberRole::Founder, self.founders.clone());
+            if !self.founders.is_empty() {
+                assert!(<Members<T, I>>::get(MemberRole::Founder).is_empty(), "Founders are already initialized!");
+                Members::<T, I>::insert(MemberRole::Founder, self.founders.clone());
+            }
+            if !self.fellows.is_empty() {
+                assert!(<Members<T, I>>::get(MemberRole::Fellow).is_empty(), "Fellows are already initialized!");
+                Members::<T, I>::insert(MemberRole::Fellow, self.fellows.clone());
+            }
         }
     }
 
@@ -259,9 +270,17 @@ pub mod pallet {
             ensure!(!<SuspendedMembers<T, I>>::contains_key(&who), Error::<T, I>::SuspendedMember);
 
             let proposal_hash = T::Hashing::hash_of(&proposal);
-
-            // TODO parse proposal, kick member/ add blacklist add to SuspendedMembers
-            // SuspendedMembers::<T, I>::insert()
+            match proposal.is_sub_type() {
+                Some(Call::kick_member(ref strike)) => {
+                    <SuspendedMembers<T, I>>::insert(strike, true);
+                }
+                Some(Call::add_blacklist(ref info)) => {
+                    if let MemberIdentity::Address(strike) = info {
+                        <SuspendedMembers<T, I>>::insert(strike, true);
+                    }
+                }
+                _ => ()
+            }
 
             // The motion with high bound of (2/3f+1) needed.
             let threshold = 2 * Self::elevated_member_count() / 3 + 1;
@@ -278,7 +297,13 @@ pub mod pallet {
             ensure!(Self::is_member(&who, Some(MemberRole::Founder)).0, Error::<T, I>::NotFounder);
             ensure!(!<SuspendedMembers<T, I>>::contains_key(&who), Error::<T, I>::SuspendedMember);
 
-            // TODO parse proposal, only set_rule and elevate_ally can be vetoed.
+            let proposal = T::ProposalProvider::proposal_of(proposal_hash);
+            ensure!(proposal.is_some(), Error::<T, I>::ProposalMissing);
+            let veto_rights = match proposal.unwrap().is_sub_type() {
+                Some(Call::set_rule(..)) | Some(Call::elevate_ally(..)) => true,
+                _ => false
+            };
+            ensure!(veto_rights, Error::<T, I>::ProposalNotVetoable);
 
             T::ProposalProvider::veto_proposal(proposal_hash);
             Ok(())
@@ -293,24 +318,47 @@ pub mod pallet {
         ) -> DispatchResult {
             let _ = ensure_signed(origin)?;
 
-            let proposals = T::ProposalProvider::proposal_of(proposal_hash);
-            ensure!(proposals.is_some(),  Error::<T, I>::ProposalMissing);
+            let proposal = T::ProposalProvider::proposal_of(proposal_hash);
+            ensure!(proposal.is_some(),  Error::<T, I>::ProposalMissing);
 
-            // TODO parse proposal, kick member/ add blacklist motion rejected need remove from SuspendedMembers
+            let (_, pays) = T::ProposalProvider::close_proposal(proposal_hash, index, proposal_weight_bound, length_bound)?;
+            if Pays::No == pays {
+                match proposal.unwrap().is_sub_type() {
+                    Some(Call::kick_member(ref strike)) => {
+                        <SuspendedMembers<T, I>>::remove(strike);
+                    }
+                    Some(Call::add_blacklist(ref info)) => {
+                        if let MemberIdentity::Address(strike) = info {
+                            <SuspendedMembers<T, I>>::remove(strike);
+                        }
+                    }
+                    _ => ()
+                }
+            }
 
-            let (_, _pays) = T::ProposalProvider::close_proposal(proposal_hash, index, proposal_weight_bound, length_bound)?;
             Ok(())
         }
 
         /// Initialize the founders to the given members.
         #[pallet::weight(0)]
-        pub(super) fn init_founders(origin: OriginFor<T>, founders: Vec<T::AccountId>) -> DispatchResult {
+        pub(super) fn init_founders(origin: OriginFor<T>, founders: Vec<T::AccountId>, prime: Option<T::AccountId>) -> DispatchResult {
             T::FounderInitOrigin::ensure_origin(origin)?;
             let mut founders = founders.clone();
             founders.sort();
             T::InitializeMembers::initialize_members(&founders);
+            T::MembershipChanged::set_prime(prime);
             Members::<T, I>::insert(&MemberRole::Founder, founders.clone());
             Self::deposit_event(Event::FoundersInit(founders));
+            Ok(())
+        }
+
+        /// Set the prime member.
+        #[pallet::weight(0)]
+        pub(super) fn set_prime(origin: OriginFor<T>, prime: Option<T::AccountId>) -> DispatchResult {
+            T::MajorityOrigin::ensure_origin(origin)?;
+
+            T::MembershipChanged::set_prime(prime.clone());
+            Self::deposit_event(Event::PrimeSet(prime));
             Ok(())
         }
 
@@ -338,7 +386,7 @@ pub mod pallet {
                 height: T::BlockNumber::max_value(),
             });
             <Announcements<T, I>>::put(&announcements);
-            Self::deposit_event(Event::PublishAnnouncement(publisher, announcement));
+            Self::deposit_event(Event::AnnouncementPublish(publisher, announcement));
             Ok(())
         }
 
