@@ -3977,9 +3977,15 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "752a61cd890ff691b4411423d23816d5866dd5621e4d1c5687a53b94b5a979d8"
 dependencies = [
+ "blake2b_simd",
+ "blake2s_simd",
+ "blake3",
+ "digest 0.9.0",
  "generic-array 0.14.4",
  "multihash-derive",
  "parity-scale-codec",
+ "sha2 0.9.3",
+ "sha3",
  "unsigned-varint 0.7.0",
 ]
 
@@ -4151,6 +4157,7 @@ dependencies = [
  "node-primitives",
  "node-rpc",
  "node-runtime",
+ "pallet-alliance",
  "pallet-authority-discovery",
  "pallet-balances",
  "pallet-contracts",
@@ -4693,9 +4700,10 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "hex-literal",
  "log",
+ "multihash 0.14.0",
  "pallet-balances",
+ "pallet-collective",
  "parity-scale-codec",
  "sp-core",
  "sp-io",

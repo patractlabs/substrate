@@ -1198,7 +1198,7 @@ construct_runtime!(
 		Mmr: pallet_mmr::{Pallet, Storage},
 		Lottery: pallet_lottery::{Pallet, Call, Storage, Event<T>},
 		Gilt: pallet_gilt::{Pallet, Call, Storage, Event<T>, Config},
-		AllianceMotion: pallet_collective::<Instance3>::{Pallet, Call, Storage, Origin<T>, Event<T>, Config<T>},
+		AllianceMotion: pallet_collective::<Instance3>::{Pallet, Call, Storage, Origin<T>, Event<T>},
 		Alliance: pallet_alliance::{Pallet, Call, Storage, Event<T>},
 	}
 );
