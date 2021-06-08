@@ -1189,5 +1189,16 @@ impl<T: Config> Pallet<T> {
 			false
 		}
 	}
+
+	/// Verify judgement for an account's identity.
+	pub fn verify_judgement(who: &T::AccountId) -> bool {
+		if let Some(judgements) = IdentityOf::<T>::get(who).map(|registration| registration.judgements) {
+			judgements.iter()
+				.filter(|(_, j)| Judgement::KnownGood == *j)
+				.count() > 0
+		} else {
+			false
+		}
+	}
 }
 
