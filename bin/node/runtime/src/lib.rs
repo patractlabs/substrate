@@ -1155,7 +1155,8 @@ impl pallet_collective::Config<AllianceCollective> for Runtime {
 pub struct AllyIdentityVerifier;
 impl IdentityVerifier<AccountId> for AllyIdentityVerifier {
 	fn verify_identity(who: &AccountId, field: u64) -> bool {
-		Identity::verify_identity(who, field) || Identity::verify_parent_identity(who, field)
+		(Identity::verify_identity(who, field) || Identity::verify_parent_identity(who, field))
+			&& Identity::verify_judgement(who)
 	}
 }
 
@@ -1186,8 +1187,11 @@ impl ProposalProvider<AccountId, Hash, Call> for AlliProposalProvider {
 impl pallet_alliance::Config for Runtime {
 	type Event = Event;
 	type Proposal = Call;
-	type FounderInitOrigin = pallet_collective::EnsureProportionAtLeast<_1, _2, AccountId, CouncilCollective>;
-	type MajorityOrigin = pallet_collective::EnsureProportionMoreThan<_2, _3, AccountId, AllianceCollective>;
+	type MajorityOrigin = EnsureOneOf<
+		AccountId,
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureProportionMoreThan<_2, _3, AccountId, AllianceCollective>,
+	>;
 	type Currency = Balances;
 	type InitializeMembers = AllianceMotion;
 	type MembershipChanged = AllianceMotion;

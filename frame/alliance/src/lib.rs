@@ -122,9 +122,6 @@ pub mod pallet {
 			+ IsSubType<Call<Self, I>>
 			+ IsType<<Self as frame_system::Config>::Call>;
 
-		/// The origin that is allowed to call `init_founder`.
-		type FounderInitOrigin: EnsureOrigin<Self::Origin>;
-
 		/// Origin from which the next tabled referendum may be forced; this allows for the tabling of
 		/// a majority-carries referendum.
 		type MajorityOrigin: EnsureOrigin<Self::Origin>;
@@ -372,7 +369,7 @@ pub mod pallet {
 			founders: Vec<T::AccountId>,
 			prime: Option<T::AccountId>,
 		) -> DispatchResult {
-			T::FounderInitOrigin::ensure_origin(origin)?;
+			ensure_root(origin)?;
 			ensure!(
 				<Members<T, I>>::get(MemberRole::Founder).is_empty(),
 				Error::<T, I>::FoundersAlreadyInitialized
