@@ -33,7 +33,8 @@ use frame_support::{
         PostDispatchInfo,
     },
     traits::{
-        ChangeMembers, Currency, EnsureOrigin, Get, InitializeMembers, IsSubType, OnUnbalanced, ReservableCurrency,
+        ChangeMembers, Currency, EnsureOrigin, Get, InitializeMembers, IsSubType, OnUnbalanced,
+        ReservableCurrency,
     },
     weights::Weight,
 };
@@ -310,7 +311,7 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let proposor = ensure_signed(origin)?;
             ensure!(
-                Self::is_elevated_member(&proposor),
+                Self::is_votale_member(&proposor),
                 Error::<T>::NotElevatedMember
             );
             ensure!(!Self::is_suspended(&proposor), Error::<T>::AlreadySuspended);
@@ -341,7 +342,7 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let proposor = ensure_signed(origin)?;
             ensure!(
-                Self::is_elevated_member(&proposor),
+                Self::is_votale_member(&proposor),
                 Error::<T>::NotElevatedMember
             );
             ensure!(!Self::is_suspended(&proposor), Error::<T>::AlreadySuspended);
@@ -362,7 +363,7 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let proposor = ensure_signed(origin)?;
             ensure!(
-                Self::is_elevated_member(&proposor),
+                Self::is_votale_member(&proposor),
                 Error::<T>::NotElevatedMember
             );
             ensure!(!Self::is_suspended(&proposor), Error::<T>::AlreadySuspended);
@@ -447,7 +448,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let nominator = ensure_signed(origin)?;
             ensure!(
-                Self::is_elevated_member(&nominator),
+                Self::is_votale_member(&nominator),
                 Error::<T>::NotElevatedMember
             );
             ensure!(
@@ -577,7 +578,7 @@ pub mod pallet {
             let who = T::Lookup::lookup(ally)?;
             ensure!(Self::is_ally_member(&who), Error::<T>::NotAllyMember);
             ensure!(
-                !Self::is_elevated_member(&who),
+                !Self::is_votale_member(&who),
                 Error::<T>::AlreadyElevatedMember
             );
             ensure!(!Self::is_suspended(&who), Error::<T>::AlreadySuspended);
@@ -700,7 +701,7 @@ impl<T: Config> Pallet<T> {
         MemberInfoOf::<T>::contains_key(who)
     }
 
-    fn is_elevated_member(who: &T::AccountId) -> bool {
+    fn is_votale_member(who: &T::AccountId) -> bool {
         if let Some(info) = MemberInfoOf::<T>::get(who) {
             info.role == MemberRole::Founder || info.role == MemberRole::Fellow
         } else {
