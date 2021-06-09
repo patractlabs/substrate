@@ -307,6 +307,7 @@ pub mod pallet {
         #[pallet::weight(0)]
         pub(crate) fn propose(
             origin: OriginFor<T>,
+            threshold: MemberCount,
             proposal: Box<<T as Config>::Proposal>,
         ) -> DispatchResultWithPostInfo {
             let proposor = ensure_signed(origin)?;
@@ -329,8 +330,7 @@ pub mod pallet {
             }
 
             // maybe use config to set the threshold
-            // let threshold = (2/3f+1);
-            T::MotionOperation::propose(proposor, /*threshold*/ 3, *proposal)
+            T::MotionOperation::propose(proposor, threshold, *proposal)
         }
 
         #[pallet::weight(0)]
