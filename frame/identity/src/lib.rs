@@ -1165,7 +1165,7 @@ impl<T: Config> Pallet<T> {
 	/// Verify the identity info of an account by the identity field.
 	pub fn verify_identity(who: &T::AccountId, field: u64) -> bool {
 		if let Some(identity) = IdentityOf::<T>::get(who).map(|registration| registration.info) {
-			match IdentityField::try_from(field) {
+			let is_exist = match IdentityField::try_from(field) {
 				Ok(IdentityField::Display) => identity.display != Data::None,
 				Ok(IdentityField::Legal) => identity.legal != Data::None,
 				Ok(IdentityField::Web) => identity.web != Data::None,
@@ -1175,7 +1175,8 @@ impl<T: Config> Pallet<T> {
 				Ok(IdentityField::Image) => identity.image != Data::None,
 				Ok(IdentityField::Twitter) => identity.twitter != Data::None,
 				Err(_) => false,
-			}
+			};
+			is_exist && Self::verify_judgement(who)
 		} else {
 			false
 		}
@@ -1194,7 +1195,7 @@ impl<T: Config> Pallet<T> {
 	pub fn verify_judgement(who: &T::AccountId) -> bool {
 		if let Some(judgements) = IdentityOf::<T>::get(who).map(|registration| registration.judgements) {
 			judgements.iter()
-				.filter(|(_, j)| Judgement::KnownGood == *j)
+				.filter(|(_, j)| Judgement::KnownGood == *j || Judgement::Reasonable == *j)
 				.count() > 0
 		} else {
 			false

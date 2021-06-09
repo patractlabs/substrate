@@ -28,7 +28,7 @@ use frame_support::{
 };
 pub use pallet::*;
 use sp_runtime::{
-	traits::{Bounded, Hash, StaticLookup, Zero},
+	traits::{Hash, StaticLookup, Zero},
 	RuntimeDebug,
 };
 use sp_std::prelude::*;
@@ -41,8 +41,11 @@ mod tests;
 /// Simple index type for proposal counting.
 pub type ProposalIndex = u32;
 
+type URL = Vec<u8>;
+
 type BalanceOf<T, I = ()> =
 	<<T as Config<I>>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 type NegativeImbalanceOf<T, I = ()> = <<T as Config<I>>::Currency as Currency<
 	<T as frame_system::Config>::AccountId,
 >>::NegativeImbalance;
@@ -55,17 +58,13 @@ const IDENTITY_FIELD_WEB: u64 = 0b0000000000000000000000000000000000000000000000
 pub enum MemberRole {
 	Founder,
 	Fellow,
-	/// The current set of allies; candidates who have been approved but have not been elevated to fellow.
-	/// Allies can’t propose proposal or vote on motions, only for show.
 	Ally,
 }
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug)]
-pub enum MemberIdentity<AccountId> {
-	/// The member has been chosen to be skeptic and has not yet taken any action.
-	Website(Vec<u8>),
-	/// The member has rejected the candidate's application.
-	Address(AccountId),
+pub enum UserIdentity<AccountId> {
+	Website(URL),
+	AccountId(AccountId),
 }
 
 /// Application form to become a candidate to entry into alliance.
@@ -84,17 +83,6 @@ pub enum CandidacyKind<AccountId, Balance> {
 	Submit(Balance),
 	/// A fellow/founder nominate candidacy for a outsider with zero deposit.
 	Nominate(AccountId),
-}
-
-/// Details surrounding a specific instance of an announcement to make a call.
-#[derive(Encode, Decode, Clone, Copy, Eq, PartialEq, RuntimeDebug)]
-pub struct Announcement<AccountId, BlockNumber> {
-	/// The account which made the announcement.
-	publisher: AccountId,
-	/// The hash of the call to be made.
-	content: cid::Cid,
-	/// The height at which the announcement was made.
-	height: BlockNumber,
 }
 
 #[frame_support::pallet]
@@ -124,7 +112,7 @@ pub mod pallet {
 
 		/// Origin from which the next tabled referendum may be forced; this allows for the tabling of
 		/// a majority-carries referendum.
-		type MajorityOrigin: EnsureOrigin<Self::Origin>;
+		type SuperMajorityOrigin: EnsureOrigin<Self::Origin>;
 
 		/// The currency used for deposits.
 		type Currency: LockableCurrency<Self::AccountId, Moment = Self::BlockNumber>
@@ -153,15 +141,15 @@ pub mod pallet {
 		AlreadyCandidate,
 		AlreadyMember,
 		AlreadyElevated,
-		AlreadyInBlacklist,
+		AlreadyBlacklist,
 		NotCandidate,
 		NotAlly,
 		NotFounder,
 		NotMember,
-		NotElevatedMember,
-		SuspendedMember,
+		NotFounderOrFellow,
+		KickingMember,
 		InsufficientCandidateFunds,
-		NotInBlacklist,
+		NotBlacklist,
 		NoIdentity,
 		ProposalMissing,
 		ProposalNotVetoable,
@@ -172,16 +160,18 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub (super) fn deposit_event)]
 	#[pallet::metadata(T::AccountId = "AccountId", T::Balance = "Balance")]
 	pub enum Event<T: Config<I>, I: 'static = ()> {
-		AllianceRuleUpdate(cid::Cid),
-		CandidateAdded(T::AccountId, CandidacyKind<T::AccountId, BalanceOf<T, I>>),
+		RuleSet(cid::Cid),
+		CandidateAdded(T::AccountId, Option<T::AccountId>, Option<BalanceOf<T, I>>),
 		FoundersInit(Vec<T::AccountId>),
 		MemberAdded(T::AccountId, MemberRole),
 		MemberRetire(T::AccountId),
 		MemberKicked(T::AccountId),
-		BlacklistAdded(MemberIdentity<T::AccountId>),
-		BlacklistRemoved(MemberIdentity<T::AccountId>),
-		AnnouncementPublish(T::AccountId, cid::Cid),
-		PrimeSet(Option<T::AccountId>),
+		BlacklistAdded(UserIdentity<T::AccountId>),
+		BlacklistRemoved(UserIdentity<T::AccountId>),
+		NewAnnouncement(cid::Cid),
+		CandidateApproved(T::AccountId),
+		CandidateRejected(T::AccountId),
+		AllyElevated(T::AccountId),
 	}
 
 	/// A ipfs cid of the rules of this alliance concerning membership.
@@ -189,26 +179,26 @@ pub mod pallet {
 	/// vote to determine if the rules take effect.
 	/// The founder has a special one-vote veto right to the rules setting.
 	#[pallet::storage]
-	#[pallet::getter(fn rules)]
-	pub type Rules<T: Config<I>, I: 'static = ()> = StorageValue<_, cid::Cid, OptionQuery>;
+	#[pallet::getter(fn rule)]
+	pub type Rule<T: Config<I>, I: 'static = ()> = StorageValue<_, cid::Cid, OptionQuery>;
 
 	/// Maps proposal hash and identity info.
 	#[pallet::storage]
 	#[pallet::getter(fn announcements)]
 	pub type Announcements<T: Config<I>, I: 'static = ()> =
-		StorageValue<_, Vec<Announcement<T::AccountId, T::BlockNumber>>, ValueQuery>;
+		StorageValue<_, Vec<cid::Cid>, ValueQuery>;
 
 	/// The member who have locked a candidate deposit.
 	#[pallet::storage]
 	#[pallet::getter(fn deposit_of)]
 	pub type DepositOf<T: Config<I>, I: 'static = ()> =
-		StorageMap<_, Twox64Concat, T::AccountId, BalanceOf<T, I>, OptionQuery>;
+		StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T, I>, OptionQuery>;
 
 	/// The current set of candidates; outsiders who are attempting to become members.
 	#[pallet::storage]
 	#[pallet::getter(fn candidates)]
 	pub type Candidates<T: Config<I>, I: 'static = ()> =
-		StorageValue<_, Vec<CandidacyForm<T::AccountId, BalanceOf<T, I>>>, ValueQuery>;
+		StorageValue<_, Vec<T::AccountId>, ValueQuery>;
 
 	/// The current set of alliance members(founder/fellow/ally).
 	///
@@ -218,59 +208,22 @@ pub mod pallet {
 	pub type Members<T: Config<I>, I: 'static = ()> =
 		StorageMap<_, Twox64Concat, MemberRole, Vec<T::AccountId>, ValueQuery>;
 
-	/// The set of suspended members.
+	/// The set of kicking members.
 	#[pallet::storage]
-	#[pallet::getter(fn suspended_member)]
-	pub type SuspendedMembers<T: Config<I>, I: 'static = ()> =
-		StorageMap<_, Twox64Concat, T::AccountId, bool, ValueQuery>;
+	#[pallet::getter(fn kicking_member)]
+	pub type KickingMembers<T: Config<I>, I: 'static = ()> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, bool, ValueQuery>;
 
 	/// Maps proposal hash and identity info.
 	#[pallet::storage]
-	#[pallet::getter(fn blacklist)]
-	pub type Blacklist<T: Config<I>, I: 'static = ()> =
-		StorageValue<_, Vec<(T::BlockNumber, MemberIdentity<T::AccountId>)>, ValueQuery>;
+	#[pallet::getter(fn account_blacklist)]
+	pub type AccountBlacklist<T: Config<I>, I: 'static = ()> =
+		StorageValue<_, Vec<T::AccountId>, ValueQuery>;
 
-	#[pallet::genesis_config]
-	pub struct GenesisConfig<T: Config<I>, I: 'static = ()> {
-		pub founders: Vec<T::AccountId>,
-		pub fellows: Vec<T::AccountId>,
-		pub phantom: PhantomData<(T, I)>,
-	}
-
-	#[cfg(feature = "std")]
-	impl<T: Config<I>, I: 'static> Default for GenesisConfig<T, I> {
-		fn default() -> Self {
-			Self { founders: Vec::new(), fellows: Vec::new(), phantom: Default::default() }
-		}
-	}
-
-	#[pallet::genesis_build]
-	impl<T: Config<I>, I: 'static> GenesisBuild<T, I> for GenesisConfig<T, I> {
-		fn build(&self) {
-			for m in self.founders.iter().chain(self.fellows.iter()) {
-				assert!(Pallet::<T, I>::verify_identity(m), "Member does not set identity!");
-			}
-
-			if !self.founders.is_empty() {
-				assert!(
-					<Members<T, I>>::get(MemberRole::Founder).is_empty(),
-					"Founders are already initialized!"
-				);
-				Members::<T, I>::insert(MemberRole::Founder, self.founders.clone());
-			}
-			if !self.fellows.is_empty() {
-				assert!(
-					<Members<T, I>>::get(MemberRole::Fellow).is_empty(),
-					"Fellows are already initialized!"
-				);
-				Members::<T, I>::insert(MemberRole::Fellow, self.fellows.clone());
-			}
-
-			T::InitializeMembers::initialize_members(
-				&[self.founders.as_slice(), self.fellows.as_slice()].concat(),
-			)
-		}
-	}
+	#[pallet::storage]
+	#[pallet::getter(fn website_blacklist)]
+	pub type WebsiteBlacklist<T: Config<I>, I: 'static = ()> =
+		StorageValue<_, Vec<URL>, ValueQuery>;
 
 	#[pallet::call]
 	impl<T: Config<I>, I: 'static> Pallet<T, I> {
@@ -283,24 +236,14 @@ pub mod pallet {
 			proposal: Box<<T as Config<I>>::Proposal>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			ensure!(Self::is_elevated_member(&who), Error::<T, I>::NotElevatedMember);
-			ensure!(!<SuspendedMembers<T, I>>::contains_key(&who), Error::<T, I>::SuspendedMember);
+			ensure!(Self::is_founder_or_fellow(&who), Error::<T, I>::NotFounderOrFellow);
 
 			let proposal_hash = T::Hashing::hash_of(&proposal);
-			match proposal.is_sub_type() {
-				Some(Call::kick_member(ref strike)) => {
-					<SuspendedMembers<T, I>>::insert(strike, true);
-				},
-				Some(Call::add_blacklist(ref info)) => {
-					if let MemberIdentity::Address(strike) = info {
-						<SuspendedMembers<T, I>>::insert(strike, true);
-					}
-				},
-				_ => (),
+			if let Some(Call::kick_member(ref strike)) = proposal.is_sub_type() {
+				let strike = T::Lookup::lookup(strike.clone())?;
+				<KickingMembers<T, I>>::insert(strike, true);
 			}
-
-			// The motion with high bound of (2/3f+1) needed.
-			let threshold = 2 * Self::elevated_member_count() / 3 + 1;
+			let threshold = 2 * Self::voteable_member_count() / 3 + 1;
 			T::ProposalProvider::propose_proposal(who, threshold, *proposal, proposal_hash)?;
 			Ok(())
 		}
@@ -311,9 +254,10 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub(super) fn veto(origin: OriginFor<T>, proposal_hash: T::Hash) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			ensure!(Self::is_member(&who, Some(MemberRole::Founder)).0, Error::<T, I>::NotFounder);
-			ensure!(!<SuspendedMembers<T, I>>::contains_key(&who), Error::<T, I>::SuspendedMember);
-
+			ensure!(
+				Self::is_member(&who, Some(MemberRole::Founder)).is_some(),
+				Error::<T, I>::NotFounder
+			);
 			let proposal = T::ProposalProvider::proposal_of(proposal_hash);
 			ensure!(proposal.is_some(), Error::<T, I>::ProposalMissing);
 			let veto_rights = match proposal.unwrap().is_sub_type() {
@@ -346,19 +290,11 @@ pub mod pallet {
 				length_bound,
 			)?;
 			if Pays::No == pays {
-				match proposal.unwrap().is_sub_type() {
-					Some(Call::kick_member(ref strike)) => {
-						<SuspendedMembers<T, I>>::remove(strike);
-					},
-					Some(Call::add_blacklist(ref info)) => {
-						if let MemberIdentity::Address(strike) = info {
-							<SuspendedMembers<T, I>>::remove(strike);
-						}
-					},
-					_ => (),
+				if let Some(Call::kick_member(ref strike)) = proposal.unwrap().is_sub_type() {
+					let strike = T::Lookup::lookup(strike.clone())?;
+					<KickingMembers<T, I>>::remove(strike);
 				}
 			}
-
 			Ok(())
 		}
 
@@ -367,7 +303,6 @@ pub mod pallet {
 		pub(super) fn init_founders(
 			origin: OriginFor<T>,
 			founders: Vec<T::AccountId>,
-			prime: Option<T::AccountId>,
 		) -> DispatchResult {
 			ensure_root(origin)?;
 			ensure!(
@@ -377,48 +312,22 @@ pub mod pallet {
 			for founder in founders.iter() {
 				ensure!(Self::verify_identity(founder), Error::<T, I>::NoIdentity);
 			}
-			if prime.is_some() {
-				ensure!(
-					founders.contains(&prime.clone().unwrap()),
-					Error::<T, I>::NotElevatedMember
-				);
-			}
 
-			let mut founders = founders.clone();
+			let mut founders = founders;
 			founders.sort();
 			T::InitializeMembers::initialize_members(&founders);
-			T::MembershipChanged::set_prime(prime);
 			Members::<T, I>::insert(&MemberRole::Founder, founders.clone());
 			Self::deposit_event(Event::FoundersInit(founders));
-			Ok(())
-		}
-
-		/// Set the prime member.
-		#[pallet::weight(0)]
-		pub(super) fn set_prime(
-			origin: OriginFor<T>,
-			prime: Option<T::AccountId>,
-		) -> DispatchResult {
-			T::MajorityOrigin::ensure_origin(origin)?;
-			if prime.is_some() {
-				ensure!(
-					Self::is_elevated_member(&prime.clone().unwrap()),
-					Error::<T, I>::NotElevatedMember
-				);
-			}
-
-			T::MembershipChanged::set_prime(prime.clone());
-			Self::deposit_event(Event::PrimeSet(prime));
 			Ok(())
 		}
 
 		/// A IPFS cid of the rules of this alliance concerning membership.
 		#[pallet::weight(0)]
 		pub(super) fn set_rule(origin: OriginFor<T>, rule: cid::Cid) -> DispatchResult {
-			T::MajorityOrigin::ensure_origin(origin)?;
+			T::SuperMajorityOrigin::ensure_origin(origin)?;
 
-			Rules::<T, I>::put(&rule);
-			Self::deposit_event(Event::AllianceRuleUpdate(rule));
+			Rule::<T, I>::put(&rule);
+			Self::deposit_event(Event::RuleSet(rule));
 			Ok(())
 		}
 
@@ -426,21 +335,11 @@ pub mod pallet {
 		/// Proposer should publish in polkassembly.io first and talked with others,
 		/// then publish the post into IPFS. Create a ID.
 		#[pallet::weight(0)]
-		pub(super) fn announce(
-			origin: OriginFor<T>,
-			publisher: T::AccountId,
-			announcement: cid::Cid,
-		) -> DispatchResult {
-			T::MajorityOrigin::ensure_origin(origin)?;
+		pub(super) fn announce(origin: OriginFor<T>, announcement: cid::Cid) -> DispatchResult {
+			T::SuperMajorityOrigin::ensure_origin(origin)?;
 
-			let mut announcements = <Announcements<T, I>>::get();
-			announcements.push(Announcement {
-				publisher: publisher.clone(),
-				content: announcement.clone(),
-				height: T::BlockNumber::max_value(),
-			});
-			<Announcements<T, I>>::put(&announcements);
-			Self::deposit_event(Event::AnnouncementPublish(publisher, announcement));
+			<Announcements<T, I>>::get().push(announcement.clone());
+			Self::deposit_event(Event::NewAnnouncement(announcement));
 			Ok(())
 		}
 
@@ -450,27 +349,18 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub(super) fn submit_candidacy(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			let candidates = <Candidates<T, I>>::get();
-			ensure!(!Self::is_candidate(&candidates, &who), Error::<T, I>::AlreadyCandidate);
-			ensure!(!Self::is_member(&who, None).0, Error::<T, I>::AlreadyMember);
-			ensure!(
-				!Self::is_blacklist(&MemberIdentity::Address(who.clone())),
-				Error::<T, I>::AlreadyInBlacklist
-			);
-
+			ensure!(!Self::is_account_blacklist(&who), Error::<T, I>::AlreadyBlacklist);
+			ensure!(Self::is_member(&who, None).is_none(), Error::<T, I>::AlreadyMember);
+			ensure!(!Self::is_candidate(&who), Error::<T, I>::AlreadyCandidate);
 			// check user self or parent should has verified identity to reuse display name and website.
 			ensure!(Self::verify_identity(&who), Error::<T, I>::NoIdentity);
 
 			let deposit = T::CandidateDeposit::get();
 			T::Currency::reserve(&who, deposit)
 				.map_err(|_| Error::<T, I>::InsufficientCandidateFunds)?;
-
-			Self::add_candidate(CandidacyForm {
-				who: who.clone(),
-				kind: CandidacyKind::Submit(deposit),
-			})?;
-
-			Self::deposit_event(Event::CandidateAdded(who, CandidacyKind::Submit(deposit)));
+			<DepositOf<T, I>>::insert(&who, deposit);
+			Self::add_candidate(&who)?;
+			Self::deposit_event(Event::CandidateAdded(who, None, Some(deposit)));
 			Ok(())
 		}
 
@@ -485,57 +375,52 @@ pub mod pallet {
 			who: T::AccountId,
 		) -> DispatchResult {
 			let nominator = ensure_signed(origin)?;
-			ensure!(Self::is_elevated_member(&nominator), Error::<T, I>::NotElevatedMember);
-			ensure!(
-				!<SuspendedMembers<T, I>>::contains_key(&nominator),
-				Error::<T, I>::SuspendedMember
-			);
-			let candidates = <Candidates<T, I>>::get();
-			ensure!(!Self::is_candidate(&candidates, &who), Error::<T, I>::AlreadyCandidate);
-			ensure!(!Self::is_member(&who, None).0, Error::<T, I>::AlreadyMember);
-			ensure!(
-				!Self::is_blacklist(&MemberIdentity::Address(who.clone())),
-				Error::<T, I>::AlreadyInBlacklist
-			);
-
+			ensure!(Self::is_founder_or_fellow(&nominator), Error::<T, I>::NotFounderOrFellow);
+			ensure!(!Self::is_account_blacklist(&who), Error::<T, I>::AlreadyBlacklist);
+			ensure!(Self::is_member(&who, None).is_none(), Error::<T, I>::AlreadyMember);
+			ensure!(!Self::is_candidate(&who), Error::<T, I>::AlreadyCandidate);
 			// check user self or parent should has verified identity to reuse display name and website.
 			ensure!(Self::verify_identity(&who), Error::<T, I>::NoIdentity);
 
-			Self::add_candidate(CandidacyForm {
-				who: who.clone(),
-				kind: CandidacyKind::Nominate(nominator.clone()),
-			})?;
-
-			Self::deposit_event(Event::CandidateAdded(who, CandidacyKind::Nominate(nominator)));
+			Self::add_candidate(&who)?;
+			Self::deposit_event(Event::CandidateAdded(who, Some(nominator), None));
 			Ok(())
 		}
 
 		/// vote a candidate to ally.
 		#[pallet::weight(0)]
-		pub(super) fn vote_candidate(
+		pub(super) fn approve_candidate(
 			origin: OriginFor<T>,
 			candidate: <T::Lookup as StaticLookup>::Source,
 		) -> DispatchResult {
-			T::MajorityOrigin::ensure_origin(origin)?;
+			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let candidate = T::Lookup::lookup(candidate)?;
-			let candidates = <Candidates<T, I>>::get();
-			ensure!(Self::is_candidate(&candidates, &candidate), Error::<T, I>::NotCandidate);
-			ensure!(!Self::is_member(&candidate, None).0, Error::<T, I>::AlreadyMember);
-			ensure!(
-				!Self::is_blacklist(&MemberIdentity::Address(candidate.clone())),
-				Error::<T, I>::AlreadyInBlacklist
-			);
+			ensure!(Self::is_member(&candidate, None).is_none(), Error::<T, I>::AlreadyMember);
+			ensure!(Self::is_candidate(&candidate), Error::<T, I>::NotCandidate);
 
-			match Self::remove_candidate(&candidate)? {
-				CandidacyKind::Submit(deposit) => {
-					<DepositOf<T, I>>::insert(&candidate, deposit);
-				},
-				_ => {},
+			Self::remove_candidate(&candidate)?;
+			Self::add_member(&candidate, MemberRole::Ally)?;
+			Self::deposit_event(Event::CandidateApproved(candidate));
+			Ok(())
+		}
+
+		/// Reject a `Candidate` to be a `Outsider`.
+		/// Only the members (`Fellows` and `Founders`) can vote to approve/reject the `Candidate`.
+		#[pallet::weight(0)]
+		pub(super) fn reject_candidate(
+			origin: OriginFor<T>,
+			candidate: <T::Lookup as StaticLookup>::Source,
+		) -> DispatchResult {
+			T::SuperMajorityOrigin::ensure_origin(origin)?;
+			let candidate = T::Lookup::lookup(candidate)?;
+			ensure!(Self::is_member(&candidate, None).is_none(), Error::<T, I>::AlreadyMember);
+			ensure!(Self::is_candidate(&candidate), Error::<T, I>::NotCandidate);
+
+			Self::remove_candidate(&candidate)?;
+			if let Some(deposit) = DepositOf::<T, I>::take(&candidate) {
+				T::Slashed::on_unbalanced(T::Currency::slash_reserved(&candidate, deposit).0);
 			}
-
-			let role = MemberRole::Ally;
-			Self::add_member(&candidate, role)?;
-			Self::deposit_event(Event::MemberAdded(candidate, role));
+			Self::deposit_event(Event::CandidateRejected(candidate));
 			Ok(())
 		}
 
@@ -547,16 +432,17 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			ally: <T::Lookup as StaticLookup>::Source,
 		) -> DispatchResult {
-			T::MajorityOrigin::ensure_origin(origin)?;
+			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let ally = T::Lookup::lookup(ally)?;
-			ensure!(Self::is_member(&ally, Some(MemberRole::Ally)).0, Error::<T, I>::NotAlly);
-			ensure!(!Self::is_elevated_member(&ally), Error::<T, I>::AlreadyElevated);
-			ensure!(!<SuspendedMembers<T, I>>::contains_key(&ally), Error::<T, I>::SuspendedMember);
+			ensure!(
+				Self::is_member(&ally, Some(MemberRole::Ally)).is_some(),
+				Error::<T, I>::NotAlly
+			);
+			ensure!(!Self::is_founder_or_fellow(&ally), Error::<T, I>::AlreadyElevated);
 
-			let role = MemberRole::Fellow;
-			Self::remove_member(ally.clone(), MemberRole::Ally)?;
-			Self::add_member(&ally, role)?;
-			Self::deposit_event(Event::MemberAdded(ally, role));
+			Self::remove_member(&ally, MemberRole::Ally)?;
+			Self::add_member(&ally, MemberRole::Fellow)?;
+			Self::deposit_event(Event::AllyElevated(ally));
 			Ok(())
 		}
 
@@ -564,35 +450,35 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub(super) fn retire(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			let (is_member, role) = Self::is_member(&who, None);
-			ensure!(is_member, Error::<T, I>::NotMember);
-			ensure!(!<SuspendedMembers<T, I>>::contains_key(&who), Error::<T, I>::SuspendedMember);
+			let role = Self::is_member(&who, None);
+			ensure!(role.is_some(), Error::<T, I>::NotMember);
+			ensure!(!<KickingMembers<T, I>>::contains_key(&who), Error::<T, I>::KickingMember);
 
-			Self::remove_member(who.clone(), role.unwrap())?;
-			if let Some(deposit) = DepositOf::<T, I>::take(who.clone()) {
+			Self::remove_member(&who, role.unwrap())?;
+			if let Some(deposit) = DepositOf::<T, I>::take(&who) {
 				let err_amount = T::Currency::unreserve(&who, deposit);
 				debug_assert!(err_amount.is_zero());
 			}
-
 			Self::deposit_event(Event::MemberRetire(who));
 			Ok(())
 		}
 
 		/// Kick a member to outsider with its deposit slashed.
 		#[pallet::weight(0)]
-		pub(super) fn kick_member(origin: OriginFor<T>, who: T::AccountId) -> DispatchResult {
-			T::MajorityOrigin::ensure_origin(origin)?;
+		pub(super) fn kick_member(
+			origin: OriginFor<T>,
+			who: <T::Lookup as StaticLookup>::Source,
+		) -> DispatchResult {
+			T::SuperMajorityOrigin::ensure_origin(origin)?;
+			let member = T::Lookup::lookup(who)?;
+			let role = Self::is_member(&member, None);
+			ensure!(role.is_some(), Error::<T, I>::NotMember);
 
-			let (is_member, role) = Self::is_member(&who, None);
-			ensure!(is_member, Error::<T, I>::NotMember);
-
-			Self::remove_member(who.clone(), role.unwrap())?;
-
-			if let Some(deposit) = DepositOf::<T, I>::take(who.clone()) {
-				T::Slashed::on_unbalanced(T::Currency::slash_reserved(&who, deposit).0);
+			Self::remove_member(&member, role.unwrap())?;
+			if let Some(deposit) = DepositOf::<T, I>::take(member.clone()) {
+				T::Slashed::on_unbalanced(T::Currency::slash_reserved(&member, deposit).0);
 			}
-
-			Self::deposit_event(Event::MemberKicked(who));
+			Self::deposit_event(Event::MemberKicked(member));
 			Ok(())
 		}
 
@@ -600,13 +486,15 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub(super) fn add_blacklist(
 			origin: OriginFor<T>,
-			info: MemberIdentity<T::AccountId>,
+			infos: Vec<UserIdentity<T::AccountId>>,
 		) -> DispatchResult {
-			T::MajorityOrigin::ensure_origin(origin)?;
-			ensure!(!Self::is_blacklist(&info), Error::<T, I>::AlreadyInBlacklist);
+			T::SuperMajorityOrigin::ensure_origin(origin)?;
 
-			Self::blacklist_add(T::BlockNumber::max_value(), &info)?;
-			Self::deposit_event(Event::BlacklistAdded(info));
+			for info in infos {
+				ensure!(!Self::is_blacklist(&info), Error::<T, I>::AlreadyBlacklist);
+				Self::do_add_blacklist(&info)?;
+				Self::deposit_event(Event::BlacklistAdded(info));
+			}
 			Ok(())
 		}
 
@@ -614,13 +502,14 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub(super) fn remove_blacklist(
 			origin: OriginFor<T>,
-			info: MemberIdentity<T::AccountId>,
+			infos: Vec<UserIdentity<T::AccountId>>,
 		) -> DispatchResult {
-			T::MajorityOrigin::ensure_origin(origin)?;
-			ensure!(Self::is_blacklist(&info), Error::<T, I>::NotInBlacklist);
-
-			Self::blacklist_remove(&info)?;
-			Self::deposit_event(Event::BlacklistRemoved(info));
+			T::SuperMajorityOrigin::ensure_origin(origin)?;
+			for info in infos {
+				ensure!(Self::is_blacklist(&info), Error::<T, I>::NotBlacklist);
+				Self::do_remove_blacklist(&info)?;
+				Self::deposit_event(Event::BlacklistRemoved(info));
+			}
 			Ok(())
 		}
 	}
@@ -628,66 +517,51 @@ pub mod pallet {
 
 impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	/// Check if a user is a candidate.
-	fn is_candidate(
-		candidates: &Vec<CandidacyForm<T::AccountId, BalanceOf<T, I>>>,
-		who: &T::AccountId,
-	) -> bool {
-		candidates.binary_search_by_key(who, |a| a.who.clone()).is_ok()
+	fn is_candidate(who: &T::AccountId) -> bool {
+		<Candidates<T, I>>::get().contains(who)
 	}
 
 	/// Add a candidate to the sorted candidate list.
-	fn add_candidate(form: CandidacyForm<T::AccountId, BalanceOf<T, I>>) -> DispatchResult {
+	fn add_candidate(who: &T::AccountId) -> DispatchResult {
 		let mut candidates = <Candidates<T, I>>::get();
-		let insert_position = candidates
-			.binary_search_by(|a| a.who.cmp(&form.who))
-			.err()
-			.ok_or(Error::<T, I>::AlreadyCandidate)?;
-		candidates.insert(insert_position, form);
+		let insert_position =
+			candidates.binary_search(who).err().ok_or(Error::<T, I>::AlreadyCandidate)?;
+		candidates.insert(insert_position, who.clone());
 		Candidates::<T, I>::put(candidates);
 		Ok(())
 	}
 
 	/// Remove a candidate from the candidates list.
-	fn remove_candidate(
-		who: &T::AccountId,
-	) -> sp_std::result::Result<CandidacyKind<T::AccountId, BalanceOf<T, I>>, DispatchError> {
+	fn remove_candidate(who: &T::AccountId) -> DispatchResult {
 		let mut candidates = <Candidates<T, I>>::get();
-		let position = candidates
-			.binary_search_by_key(who, |a| a.who.clone())
-			.ok()
-			.ok_or(Error::<T, I>::NotCandidate)?;
-		let candidate = candidates.remove(position);
+		let position = candidates.binary_search(who).ok().ok_or(Error::<T, I>::NotCandidate)?;
+		candidates.remove(position);
 		Candidates::<T, I>::put(candidates);
-		Ok(candidate.kind)
+		Ok(())
 	}
 
-	fn elevated_member_count() -> u32 {
+	fn voteable_member_count() -> u32 {
 		let founders = Members::<T, I>::get(MemberRole::Founder);
 		let fellows = Members::<T, I>::get(MemberRole::Fellow);
 		(founders.len() + fellows.len()) as u32
 	}
 
-	fn is_elevated_member(who: &T::AccountId) -> bool {
-		Self::is_member(who, Some(MemberRole::Founder)).0 ||
-			Self::is_member(who, Some(MemberRole::Fellow)).0
+	/// Check if a user is a alliance member.
+	fn is_member(who: &T::AccountId, role: Option<MemberRole>) -> Option<MemberRole> {
+		if let Some(r) = role {
+			if Members::<T, I>::get(r).contains(&who) {
+				role
+			} else {
+				None
+			}
+		} else {
+			Members::<T, I>::iter().find_map(|(r, a)| if a.contains(who) { Some(r) } else { None })
+		}
 	}
 
-	/// Check if a user is a alliance member.
-	fn is_member(who: &T::AccountId, role: Option<MemberRole>) -> (bool, Option<MemberRole>) {
-		if let Some(role) = role {
-			let members = Members::<T, I>::get(&role);
-			(members.binary_search(&who).is_ok(), Some(role))
-		} else {
-			let roles: Vec<_> = Members::<T, I>::iter()
-				.filter(|(_, v)| v.binary_search(who).is_ok())
-				.map(|(k, _)| k)
-				.collect();
-			if roles.len() >= 1 {
-				(true, Some(roles[0]))
-			} else {
-				(false, None)
-			}
-		}
+	fn is_founder_or_fellow(who: &T::AccountId) -> bool {
+		Self::is_member(who, Some(MemberRole::Founder)).is_some() ||
+			Self::is_member(who, Some(MemberRole::Fellow)).is_some()
 	}
 
 	/// Add a user to the sorted alliance member set.
@@ -704,9 +578,9 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	}
 
 	/// Remove a user from the alliance member set.
-	fn remove_member(who: T::AccountId, role: MemberRole) -> DispatchResult {
+	fn remove_member(who: &T::AccountId, role: MemberRole) -> DispatchResult {
 		<Members<T, I>>::mutate(role, |members| -> DispatchResult {
-			let position = members.binary_search(&who).ok().ok_or(Error::<T, I>::NotMember)?;
+			let position = members.binary_search(who).ok().ok_or(Error::<T, I>::NotMember)?;
 			members.remove(position);
 			if role == MemberRole::Founder || role == MemberRole::Fellow {
 				T::MembershipChanged::change_members_sorted(&[], &[who.clone()], members);
@@ -715,34 +589,58 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		})
 	}
 
-	/// Check if a identity info is in blacklist.
-	fn is_blacklist(info: &MemberIdentity<T::AccountId>) -> bool {
-		let blacklist = <Blacklist<T, I>>::get();
-		blacklist.iter().find(|i| i.1 == *info).is_some()
+	/// Check if a user is in blacklist.
+	fn is_blacklist(info: &UserIdentity<T::AccountId>) -> bool {
+		match info {
+			UserIdentity::Website(url) => <WebsiteBlacklist<T, I>>::get().contains(url),
+			UserIdentity::AccountId(who) => <AccountBlacklist<T, I>>::get().contains(who),
+		}
+	}
+
+	/// Check if a user is in account blacklist.
+	fn is_account_blacklist(who: &T::AccountId) -> bool {
+		<AccountBlacklist<T, I>>::get().contains(who)
 	}
 
 	/// Add a identity info to the blacklist set.
-	fn blacklist_add(
-		number: T::BlockNumber,
-		info: &MemberIdentity<T::AccountId>,
-	) -> DispatchResult {
-		let mut blacklist = <Blacklist<T, I>>::get();
-		let insert_position = blacklist
-			.binary_search_by(|&(a, _)| a.cmp(&number))
-			.err()
-			.ok_or(Error::<T, I>::AlreadyInBlacklist)?;
-		blacklist.insert(insert_position, (number, info.clone()));
-		<Blacklist<T, I>>::put(&blacklist);
+	fn do_add_blacklist(info: &UserIdentity<T::AccountId>) -> DispatchResult {
+		match info {
+			UserIdentity::Website(url) => {
+				let mut webs = <WebsiteBlacklist<T, I>>::get();
+				let insert_position =
+					webs.binary_search(url).err().ok_or(Error::<T, I>::AlreadyBlacklist)?;
+				webs.insert(insert_position, url.to_vec());
+				WebsiteBlacklist::<T, I>::put(webs);
+			},
+			UserIdentity::AccountId(who) => {
+				let mut users = <AccountBlacklist<T, I>>::get();
+				let insert_position =
+					users.binary_search(who).err().ok_or(Error::<T, I>::AlreadyBlacklist)?;
+				users.insert(insert_position, who.clone());
+				AccountBlacklist::<T, I>::put(users);
+			},
+		}
 		Ok(())
 	}
 
-	/// Remove a identity `info` from the blacklist.
-	fn blacklist_remove(info: &MemberIdentity<T::AccountId>) -> DispatchResult {
-		let mut blacklist = <Blacklist<T, I>>::get();
-		let position =
-			blacklist.iter().position(|(_, a)| a == info).ok_or(Error::<T, I>::NotInBlacklist)?;
-		blacklist.remove(position);
-		<Blacklist<T, I>>::put(&blacklist);
+	/// Remove a identity info from the blacklist.
+	fn do_remove_blacklist(info: &UserIdentity<T::AccountId>) -> DispatchResult {
+		match info {
+			UserIdentity::Website(url) => {
+				let mut webs = <WebsiteBlacklist<T, I>>::get();
+				let insert_position =
+					webs.binary_search(url).ok().ok_or(Error::<T, I>::NotBlacklist)?;
+				webs.remove(insert_position);
+				WebsiteBlacklist::<T, I>::put(webs);
+			},
+			UserIdentity::AccountId(who) => {
+				let mut users = <AccountBlacklist<T, I>>::get();
+				let insert_position =
+					users.binary_search(who).ok().ok_or(Error::<T, I>::NotBlacklist)?;
+				users.remove(insert_position);
+				AccountBlacklist::<T, I>::put(users);
+			},
+		}
 		Ok(())
 	}
 
