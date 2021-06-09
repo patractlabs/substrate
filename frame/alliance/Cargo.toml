@@ -1,0 +1,46 @@
+[package]
+name = "pallet-alliance"
+version = "0.1.0"
+authors = ["koushiro <koushiro.cqx@gmail.com>"]
+edition = "2018"
+license = "Apache-2.0"
+readme = "README.md"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "2.1.0", default-features = false, features = ["derive"] }
+log = { version = "0.4", default-features = false }
+
+cid = { version = "0.7", default-features = false, features = ["scale-codec"] }
+
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.3", default-features = false }
+sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.3", default-features = false }
+sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.3", default-features = false }
+
+frame-support = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.3", default-features = false }
+frame-system = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.3", default-features = false }
+
+frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.3", default-features = false, optional = true }
+
+[dev-dependencies]
+hex-literal = "0.3.1"
+pallet-balances = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.3" }
+
+[features]
+default = ["std"]
+std = [
+  "codec/std",
+  "log/std",
+  "cid/std",
+  "sp-runtime/std",
+  "sp-std/std",
+  "frame-support/std",
+  "frame-system/std",
+]
+runtime-benchmarks = [
+  "frame-benchmarking",
+  "sp-runtime/runtime-benchmarks",
+  "frame-system/runtime-benchmarks"
+]
