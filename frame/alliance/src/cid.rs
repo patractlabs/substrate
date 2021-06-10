@@ -30,8 +30,8 @@ use rust_cid::Cid as SourceCid;
 use sp_runtime::RuntimeDebug;
 use sp_std::{ops::Deref, vec};
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Copy)] // SourceCid has implemeted the Copy for static length.
-#[derive(RuntimeDebug)]
+// SourceCid has implemeted the Copy for static length.
+#[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, RuntimeDebug)]
 pub struct Cid(SourceCid);
 
 impl Cid {
@@ -121,17 +121,93 @@ impl Deref for Cid {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::str::FromStr;
+	use rust_cid::{
+		multibase::Base,
+		multihash::{Code, MultihashDigest},
+		Version,
+	};
+	use sp_std::{convert::TryFrom, str::FromStr};
+	const RAW: u64 = 0x55;
+
 	#[test]
 	fn normal_test_for_example() {
 		let s = "QmRZdc3mAMXpv6Akz9Ekp1y4vDSjazTx2dCQRkxVy1yUj6";
 		let cid: Cid = SourceCid::from_str(s).expect("must be valid.").into();
 		let bytes = cid.encode();
-		let r = hex::encode(&bytes);
-		let expect = "0070000000000000001200000000000000202fe65ccc17fe180c3bf4e9b8490fcc6dc74c30bf6595795dcd1136d8d9cb3f95";
-		assert_eq!(r, expect);
+		let expect = hex_literal::hex!("0070000000000000001200000000000000202fe65ccc17fe180c3bf4e9b8490fcc6dc74c30bf6595795dcd1136d8d9cb3f95");
+		assert_eq!(bytes, expect);
 		let new_cid: Cid = Decode::decode(&mut &bytes[..]).expect("must decode well");
 		assert_eq!(new_cid, cid);
 	}
+
+	macro_rules! assert_cid {
+		($cid:expr, $length:expr) => {
+			let mut digest = [0_u8; $length];
+			digest.copy_from_slice($cid.hash().digest());
+			let raw = (
+				$cid.version(),
+				$cid.codec(),
+				($cid.hash().code(), $cid.hash().size(), digest),
+			);
+			let raw_encode = Encode::encode(&raw);
+			let bytes = $cid.encode();
+			assert_eq!(bytes, raw_encode);
+			let new_cid: Cid = Decode::decode(&mut &bytes[..]).expect("must decode well");
+			assert_eq!(new_cid, $cid);
+		};
+	}
 	// those test case is from crate rust-cid
+	#[test]
+	fn v0_handling() {
+		let old = "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n";
+		let cid: Cid = SourceCid::try_from(old).expect("must be valid.").into();
+
+		assert_eq!(cid.version(), Version::V0);
+		assert_eq!(cid.to_string(), old);
+
+		// for Cid v0 hash is 32 length
+		assert_cid!(cid, 32);
+	}
+
+	#[test]
+	fn v1_handling() {
+		let expected_cid = "bafkreibme22gw2h7y2h7tg2fhqotaqjucnbc24deqo72b6mkl2egezxhvy";
+		let cid: Cid = SourceCid::new_v1(RAW, Code::Sha2_256.digest(b"foo")).into();
+		assert_eq!(
+			cid.to_string_of_base(Base::Base32Lower).unwrap(),
+			expected_cid
+		);
+
+		// for sha256 hash is 32 length
+		assert_cid!(cid, 32);
+	}
+
+	// test case from https://github.com/ipfs/go-cid/blob/master/cid_test.go#L662
+	#[test]
+	fn v1_handling2() {
+		let cid1: Cid =
+			SourceCid::from_str("k2cwueckqkibutvhkr4p2ln2pjcaxaakpd9db0e7j7ax1lxhhxy3ekpv")
+				.expect("must valid")
+				.into();
+		let cid2: Cid = SourceCid::from_str("zb2rhZi1JR4eNc2jBGaRYJKYM8JEB4ovenym8L1CmFsRAytkz")
+			.expect("must valid")
+			.into();
+		assert_cid!(cid1, 32);
+		assert_cid!(cid2, 32);
+	}
+
+	#[test]
+	fn v1_handling3() {
+		let cid: Cid = SourceCid::new_v1(RAW, Code::Sha2_512.digest(b"foo")).into();
+		assert_cid!(cid, 64);
+
+		let cid: Cid = SourceCid::new_v1(RAW, Code::Keccak384.digest(b"foo")).into();
+		assert_cid!(cid, 48);
+
+		let cid: Cid = SourceCid::new_v1(RAW, Code::Sha3_224.digest(b"foo")).into();
+		assert_cid!(cid, 28);
+
+		let cid: Cid = SourceCid::new_v1(RAW, Code::Blake2s128.digest(b"foo")).into();
+		assert_cid!(cid, 16);
+	}
 }
