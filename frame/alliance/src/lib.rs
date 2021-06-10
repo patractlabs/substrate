@@ -17,6 +17,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+mod cid;
 #[cfg(test)]
 pub mod mock;
 #[cfg(test)]
