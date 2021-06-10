@@ -4786,6 +4786,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "hex-literal",
  "log",
  "multihash 0.14.0",
  "pallet-balances",

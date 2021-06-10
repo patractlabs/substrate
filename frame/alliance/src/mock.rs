@@ -78,7 +78,7 @@ impl pallet_collective::Config<AllianceCollective> for Test {
 pub struct AllyIdentityVerifier;
 
 impl IdentityVerifier<u64> for AllyIdentityVerifier {
-	fn verify_identity(_who: u64, _field: u64) -> bool {
+	fn verify_identity(_who: &u64, _field: u64) -> bool {
 		true
 	}
 }
@@ -133,10 +133,9 @@ impl Config for Test {
 	type CandidateDeposit = CandidateDeposit;
 	type Currency = Balances;
 	type Event = Event;
-	type FounderInitOrigin = EnsureSignedBy<Five, u64>;
 	type IdentityVerifier = AllyIdentityVerifier;
 	type InitializeMembers = AllianceMotion;
-	type MajorityOrigin = EnsureSignedBy<Three, u64>;
+	type SuperMajorityOrigin = EnsureSignedBy<Three, u64>;
 	type MembershipChanged = AllianceMotion;
 	type Proposal = Call;
 	type ProposalProvider = AlliProposalProvider;
@@ -172,6 +171,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		pallet_alliance: pallet_alliance::GenesisConfig {
 			founders: vec![1, 2],
 			fellows: vec![],
+			allies: vec![],
 			phantom: Default::default(),
 		},
 	}
