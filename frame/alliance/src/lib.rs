@@ -157,6 +157,65 @@ pub mod pallet {
 		BlacklistRemoved(UserIdentity<T::AccountId>),
 	}
 
+	#[pallet::genesis_config]
+	pub struct GenesisConfig<T: Config<I>, I: 'static = ()> {
+		pub founders: Vec<T::AccountId>,
+		pub fellows: Vec<T::AccountId>,
+		pub allies: Vec<T::AccountId>,
+		pub phantom: PhantomData<(T, I)>,
+	}
+
+	#[cfg(feature = "std")]
+	impl<T: Config<I>, I: 'static> Default for GenesisConfig<T, I> {
+		fn default() -> Self {
+			Self {
+				founders: Vec::new(),
+				fellows: Vec::new(),
+				allies: Vec::new(),
+				phantom: Default::default(),
+			}
+		}
+	}
+
+	#[pallet::genesis_build]
+	impl<T: Config<I>, I: 'static> GenesisBuild<T, I> for GenesisConfig<T, I> {
+		fn build(&self) {
+			for m in self
+				.founders
+				.iter()
+				.chain(self.fellows.iter())
+				.chain(self.allies.iter())
+			{
+				assert!(
+					Pallet::<T, I>::has_identity(m),
+					"Member does not set identity!"
+				);
+			}
+
+			if !self.founders.is_empty() {
+				assert!(
+					!Pallet::<T, I>::has_member(MemberRole::Founder),
+					"Founders are already initialized!"
+				);
+				Members::<T, I>::insert(MemberRole::Founder, self.founders.clone());
+			}
+			if !self.fellows.is_empty() {
+				assert!(
+					!Pallet::<T, I>::has_member(MemberRole::Fellow),
+					"Fellows are already initialized!"
+				);
+				Members::<T, I>::insert(MemberRole::Fellow, self.fellows.clone());
+			}
+			if !self.allies.is_empty() {
+				Members::<T, I>::insert(MemberRole::Ally, self.allies.clone())
+			}
+
+			//T::InitializeMembers::initialize_members(
+			//	&[self.founders.as_slice(), self.fellows.as_slice()].concat(),
+			//)
+		}
+	}
+
 	/// A ipfs cid of the rules of this alliance concerning membership.
 	/// Any member can propose rules, other members make a traditional majority-wins
 	/// vote to determine if the rules take effect.

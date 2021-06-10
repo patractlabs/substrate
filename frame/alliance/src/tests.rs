@@ -1,18 +1,16 @@
-use frame_support::{assert_noop, assert_ok, traits::Currency, Hashable};
-use frame_system::{self as system, EventRecord, Phase};
-use pallet_balances::Error as BalancesError;
-use sp_runtime::{traits::BlakeTwo256, TokenError};
+use frame_support::{assert_ok, Hashable};
+use sp_runtime::traits::BlakeTwo256;
 
 use super::*;
-use crate::{mock::*, Error};
+use crate::mock::*;
 
 #[test]
 fn propose_works() {
 	new_test_ext().execute_with(|| {
 		let proposal = make_proposal(42);
-		let proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
+		let _proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
 		let hash = BlakeTwo256::hash_of(&proposal);
-		let end = 4;
+		let _end = 4;
 		assert_ok!(Alliance::propose(
 			Origin::signed(1),
 			Box::new(proposal.clone())
@@ -25,10 +23,15 @@ fn propose_works() {
 #[test]
 fn propose_set_rule_works() {
 	new_test_ext().execute_with(|| {
-		let proposal = make_set_rule_proposal(Cid::default());
-		let proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
+		let cid = Cid::new(
+			"QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"
+				.parse()
+				.unwrap(),
+		);
+		let proposal = make_set_rule_proposal(cid);
+		let _proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
 		let hash: H256 = proposal.blake2_256().into();
-		let end = 4;
+		let _end = 4;
 		assert_ok!(Alliance::propose(
 			Origin::signed(1),
 			Box::new(proposal.clone())

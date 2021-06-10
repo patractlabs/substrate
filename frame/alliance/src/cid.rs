@@ -31,7 +31,7 @@ use sp_runtime::RuntimeDebug;
 use sp_std::{ops::Deref, vec};
 
 // SourceCid has implemeted the Copy for static length.
-#[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, RuntimeDebug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, RuntimeDebug)]
 pub struct Cid(SourceCid);
 
 impl Cid {
@@ -67,8 +67,12 @@ impl EncodeLike for Cid {}
 
 impl Decode for Cid {
 	fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
-		use rust_cid::{multihash, Version};
-		type Multihash = multihash::MultihashGeneric<multihash::U64>;
+		use rust_cid::{
+			multihash::{MultihashGeneric, U64},
+			Version,
+		};
+
+		type Multihash = MultihashGeneric<U64>;
 
 		// for cid
 		let version: Version = Decode::decode(input)?;
