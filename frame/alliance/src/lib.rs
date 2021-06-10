@@ -67,24 +67,6 @@ pub enum UserIdentity<AccountId> {
 	AccountId(AccountId),
 }
 
-/// Application form to become a candidate to entry into alliance.
-#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug)]
-pub struct CandidacyForm<AccountId, Balance> {
-	/// The outsider trying to enter alliance
-	who: AccountId,
-	/// The kind of candidacy placed for this outsider.
-	kind: CandidacyKind<AccountId, Balance>,
-}
-
-/// A vote by a member on a candidate application.
-#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug)]
-pub enum CandidacyKind<AccountId, Balance> {
-	/// The CandidateDeposit was paid for this submit candidacy.
-	Submit(Balance),
-	/// A fellow/founder nominate candidacy for a outsider with zero deposit.
-	Nominate(AccountId),
-}
-
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
@@ -161,17 +143,16 @@ pub mod pallet {
 	#[pallet::metadata(T::AccountId = "AccountId", T::Balance = "Balance")]
 	pub enum Event<T: Config<I>, I: 'static = ()> {
 		RuleSet(cid::Cid),
-		CandidateAdded(T::AccountId, Option<T::AccountId>, Option<BalanceOf<T, I>>),
 		FoundersInit(Vec<T::AccountId>),
-		MemberAdded(T::AccountId, MemberRole),
+		CandidateAdded(T::AccountId, Option<T::AccountId>, Option<BalanceOf<T, I>>),
+		CandidateApproved(T::AccountId),
+		CandidateRejected(T::AccountId),
+		AllyElevated(T::AccountId),
 		MemberRetire(T::AccountId),
 		MemberKicked(T::AccountId),
 		BlacklistAdded(UserIdentity<T::AccountId>),
 		BlacklistRemoved(UserIdentity<T::AccountId>),
 		NewAnnouncement(cid::Cid),
-		CandidateApproved(T::AccountId),
-		CandidateRejected(T::AccountId),
-		AllyElevated(T::AccountId),
 	}
 
 	/// A ipfs cid of the rules of this alliance concerning membership.
