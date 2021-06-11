@@ -154,17 +154,17 @@ pub fn host_debug(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 		let get_self: Vec<_> = fields_name.named.iter().map(|field| {
 			let field_name = field.ident.as_ref().unwrap();
 			quote! {
-                &self.#field_name
-            }
+				&self.#field_name
+			}
 		}).collect();
 
 		quote! {
-            impl fmt::Debug for #ident {
-                fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-                    f.write_fmt(format_args!("{}({:?})", #ident_name,(#(#get_self),*)))
-                }
-            }
-        }
+			impl fmt::Debug for #ident {
+				fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+					f.write_fmt(format_args!("{}({:?})", #ident_name,(#(#get_self),*)))
+				}
+			}
+		}
 	} else {
 		panic!("wrong struct type!");
 	};
@@ -184,17 +184,17 @@ pub fn host_debug_with_generic(input: proc_macro::TokenStream) -> proc_macro::To
 		let get_self: Vec<_> = fields_name.named.iter().map(|field| {
 			let field_name = field.ident.as_ref().unwrap();
 			quote! {
-                &self.#field_name
-            }
+				&self.#field_name
+			}
 		}).collect();
 
 		quote! {
-            impl #impl_generics fmt::Debug for #ident #ty_generics #where_clause {
-                fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-                    f.write_fmt(format_args!("{}({:?})", #ident_name,(#(#get_self),*)))
-                }
-            }
-        }
+			impl #impl_generics fmt::Debug for #ident #ty_generics #where_clause {
+				fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+					f.write_fmt(format_args!("{}({:?})", #ident_name,(#(#get_self),*)))
+				}
+			}
+		}
 	} else {
 		panic!("wrong struct type!");
 	};
@@ -210,8 +210,8 @@ pub fn wrap(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	let output = quote! {
 		impl<C: Config> Wrapper<C> for #ident {
 			fn wrap(&self) -> EnvTrace<C> {
-        		EnvTrace::#wrapped_ident(self.clone())
-    		}
+				EnvTrace::#wrapped_ident(self.clone())
+			}
 		}
 	};
 	output.into()
@@ -228,8 +228,8 @@ pub fn wrap_with_generic(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 	let output = quote! {
 		impl #impl_generics Wrapper #ty_generics_copy for #ident #ty_generics #where_clause {
 			fn wrap(&self) -> EnvTrace #ty_generics_copy {
-        		EnvTrace::#wrapped_ident(self.clone())
-    		}
+				EnvTrace::#wrapped_ident(self.clone())
+			}
 		}
 	};
 	output.into()

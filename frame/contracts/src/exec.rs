@@ -71,10 +71,7 @@ pub enum ErrorOrigin {
 }
 
 /// Error returned by contract exection.
-// #[cfg_attr(test, derive(Debug, PartialEq))]
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(sp_runtime::RuntimeDebug)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct ExecError {
 	/// The reason why the execution failed.
 	pub error: DispatchError,
