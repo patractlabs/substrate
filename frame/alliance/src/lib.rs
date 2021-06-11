@@ -753,24 +753,24 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	) -> DispatchResult {
 		if !out_accounts.is_empty() {
 			let mut accounts = <AccountBlacklist<T, I>>::get();
-			out_accounts.iter().for_each(|a| {
+			for who in out_accounts.iter() {
 				let pos = accounts
-					.binary_search(a)
+					.binary_search(who)
 					.ok()
 					.ok_or(Error::<T, I>::NotInBlacklist)?;
 				accounts.remove(pos);
-			});
+			}
 			AccountBlacklist::<T, I>::put(accounts);
 		}
 		if !out_webs.is_empty() {
 			let mut webs = <WebsiteBlacklist<T, I>>::get();
-			out_webs.iter().for_each(|u| {
+			for web in out_webs.iter() {
 				let pos = webs
-					.binary_search(u)
+					.binary_search(web)
 					.ok()
 					.ok_or(Error::<T, I>::NotInBlacklist)?;
 				webs.remove(pos);
-			});
+			}
 			WebsiteBlacklist::<T, I>::put(webs);
 		}
 		Ok(())
