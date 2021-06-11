@@ -40,6 +40,3 @@ fn propose_set_rule_works() {
 		assert_eq!(AllianceMotion::proposal_of(&hash), Some(proposal));
 	});
 }
-
-#[test]
-fn set_member() {}
