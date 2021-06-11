@@ -65,8 +65,8 @@ pub enum MemberRole {
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug)]
 pub enum UserIdentity<AccountId> {
-	Website(Url),
 	AccountId(AccountId),
+	Website(Url),
 }
 
 #[frame_support::pallet]
@@ -153,8 +153,8 @@ pub mod pallet {
 		AllyElevated(T::AccountId),
 		MemberRetired(T::AccountId),
 		MemberKicked(T::AccountId),
-		BlacklistAdded(UserIdentity<T::AccountId>),
-		BlacklistRemoved(UserIdentity<T::AccountId>),
+		BlacklistAdded(Vec<UserIdentity<T::AccountId>>),
+		BlacklistRemoved(Vec<UserIdentity<T::AccountId>>),
 	}
 
 	#[pallet::genesis_config]
@@ -562,14 +562,17 @@ pub mod pallet {
 			infos: Vec<UserIdentity<T::AccountId>>,
 		) -> DispatchResult {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
-			for info in infos {
-				ensure!(
-					!Self::is_blacklist(&info),
-					Error::<T, I>::AlreadyInBlacklist
-				);
-				Self::do_add_blacklist(&info)?;
-				Self::deposit_event(Event::BlacklistAdded(info));
+			let mut accounts = vec![];
+			let mut webs = vec![];
+			for info in infos.iter() {
+				ensure!(!Self::is_blacklist(info), Error::<T, I>::AlreadyInBlacklist);
+				match info {
+					UserIdentity::AccountId(who) => accounts.push(who.clone()),
+					UserIdentity::Website(url) => webs.push(url.clone()),
+				}
 			}
+			Self::do_add_blacklist(&mut accounts, &mut webs)?;
+			Self::deposit_event(Event::BlacklistAdded(infos));
 			Ok(())
 		}
 
@@ -580,11 +583,17 @@ pub mod pallet {
 			infos: Vec<UserIdentity<T::AccountId>>,
 		) -> DispatchResult {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
-			for info in infos {
-				ensure!(Self::is_blacklist(&info), Error::<T, I>::NotInBlacklist);
-				Self::do_remove_blacklist(&info)?;
-				Self::deposit_event(Event::BlacklistRemoved(info));
+			let mut accounts = vec![];
+			let mut webs = vec![];
+			for info in infos.iter() {
+				ensure!(Self::is_blacklist(info), Error::<T, I>::NotInBlacklist);
+				match info {
+					UserIdentity::AccountId(who) => accounts.push(who.clone()),
+					UserIdentity::Website(url) => webs.push(url.clone()),
+				}
 			}
+			Self::do_remove_blacklist(&mut accounts, &mut webs)?;
+			Self::deposit_event(Event::BlacklistRemoved(infos));
 			Ok(())
 		}
 	}
@@ -660,6 +669,14 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		(founders.len() + fellows.len()) as u32
 	}
 
+	fn votable_member_sorted() -> Vec<T::AccountId> {
+		let mut founders = Members::<T, I>::get(MemberRole::Founder);
+		let mut fellows = Members::<T, I>::get(MemberRole::Fellow);
+		founders.append(&mut fellows);
+		founders.sort();
+		founders
+	}
+
 	fn is_kicking(who: &T::AccountId) -> bool {
 		<KickingMembers<T, I>>::contains_key(&who)
 	}
@@ -672,11 +689,12 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				.err()
 				.ok_or(Error::<T, I>::AlreadyMember)?;
 			members.insert(pos, who.clone());
-			if role == MemberRole::Founder || role == MemberRole::Fellow {
-				T::MembershipChanged::change_members_sorted(&[who.clone()], &[], members);
-			}
 			Ok(())
-		})
+		})?;
+
+		let members = Self::votable_member_sorted();
+		T::MembershipChanged::change_members_sorted(&[who.clone()], &[], &members[..]);
+		Ok(())
 	}
 
 	/// Remove a user from the alliance member set.
@@ -687,11 +705,12 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 				.ok()
 				.ok_or(Error::<T, I>::NotMember)?;
 			members.remove(pos);
-			if role == MemberRole::Founder || role == MemberRole::Fellow {
-				T::MembershipChanged::change_members_sorted(&[], &[who.clone()], members);
-			}
 			Ok(())
-		})
+		})?;
+
+		let members = Self::votable_member_sorted();
+		T::MembershipChanged::change_members_sorted(&[], &[who.clone()], &members[..]);
+		Ok(())
 	}
 
 	/// Check if a user is in blacklist.
@@ -708,51 +727,51 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	}
 
 	/// Add a identity info to the blacklist set.
-	fn do_add_blacklist(info: &UserIdentity<T::AccountId>) -> DispatchResult {
-		match info {
-			UserIdentity::Website(url) => {
-				let mut webs = <WebsiteBlacklist<T, I>>::get();
-				let pos = webs
-					.binary_search(url)
-					.err()
-					.ok_or(Error::<T, I>::AlreadyInBlacklist)?;
-				webs.insert(pos, url.to_vec());
-				WebsiteBlacklist::<T, I>::put(webs);
-			}
-			UserIdentity::AccountId(who) => {
-				let mut users = <AccountBlacklist<T, I>>::get();
-				let pos = users
-					.binary_search(who)
-					.err()
-					.ok_or(Error::<T, I>::AlreadyInBlacklist)?;
-				users.insert(pos, who.clone());
-				AccountBlacklist::<T, I>::put(users);
-			}
+	fn do_add_blacklist(
+		new_accounts: &mut Vec<T::AccountId>,
+		new_webs: &mut Vec<Url>,
+	) -> DispatchResult {
+		if !new_accounts.is_empty() {
+			let mut users = <AccountBlacklist<T, I>>::get();
+			users.append(new_accounts);
+			users.sort();
+			AccountBlacklist::<T, I>::put(users);
+		}
+		if !new_webs.is_empty() {
+			let mut webs = <WebsiteBlacklist<T, I>>::get();
+			webs.append(new_webs);
+			webs.sort();
+			WebsiteBlacklist::<T, I>::put(webs);
 		}
 		Ok(())
 	}
 
 	/// Remove a identity info from the blacklist.
-	fn do_remove_blacklist(info: &UserIdentity<T::AccountId>) -> DispatchResult {
-		match info {
-			UserIdentity::Website(url) => {
-				let mut webs = <WebsiteBlacklist<T, I>>::get();
+	fn do_remove_blacklist(
+		out_accounts: &mut Vec<T::AccountId>,
+		out_webs: &mut Vec<Url>,
+	) -> DispatchResult {
+		if !out_accounts.is_empty() {
+			let mut accounts = <AccountBlacklist<T, I>>::get();
+			out_accounts.iter().for_each(|a| {
+				let pos = accounts
+					.binary_search(a)
+					.ok()
+					.ok_or(Error::<T, I>::NotInBlacklist)?;
+				accounts.remove(pos);
+			});
+			AccountBlacklist::<T, I>::put(accounts);
+		}
+		if !out_webs.is_empty() {
+			let mut webs = <WebsiteBlacklist<T, I>>::get();
+			out_webs.iter().for_each(|u| {
 				let pos = webs
-					.binary_search(url)
+					.binary_search(u)
 					.ok()
 					.ok_or(Error::<T, I>::NotInBlacklist)?;
 				webs.remove(pos);
-				WebsiteBlacklist::<T, I>::put(webs);
-			}
-			UserIdentity::AccountId(who) => {
-				let mut users = <AccountBlacklist<T, I>>::get();
-				let pos = users
-					.binary_search(who)
-					.ok()
-					.ok_or(Error::<T, I>::NotInBlacklist)?;
-				users.remove(pos);
-				AccountBlacklist::<T, I>::put(users);
-			}
+			});
+			WebsiteBlacklist::<T, I>::put(webs);
 		}
 		Ok(())
 	}
