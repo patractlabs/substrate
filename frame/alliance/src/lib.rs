@@ -17,11 +17,14 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
 mod cid;
 #[cfg(test)]
 pub mod mock;
 #[cfg(test)]
 mod tests;
+mod weights;
 
 use sp_runtime::{
 	traits::{Hash, StaticLookup, Zero},
@@ -39,7 +42,10 @@ use frame_support::{
 	},
 	weights::{Pays, Weight},
 };
+
+pub use cid::Cid;
 pub use pallet::*;
+pub use weights::*;
 
 /// Simple index type for proposal counting.
 pub type ProposalIndex = u32;
@@ -145,7 +151,7 @@ pub mod pallet {
 	}
 
 	#[pallet::event]
-	#[pallet::generate_deposit(pub (super) fn deposit_event)]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	#[pallet::metadata(T::AccountId = "AccountId", T::Balance = "Balance")]
 	pub enum Event<T: Config<I>, I: 'static = ()> {
 		NewRule(cid::Cid),

@@ -2,7 +2,7 @@ use frame_support::{assert_noop, assert_ok, Hashable};
 use frame_system::{EventRecord, Phase};
 
 use super::*;
-use crate::mock::*;
+pub use crate::mock::*;
 
 #[test]
 fn propose_works() {
