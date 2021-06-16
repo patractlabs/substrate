@@ -15,7 +15,6 @@ use crate as pallet_alliance;
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
 }
-
 impl frame_system::Config for Test {
 	type AccountData = pallet_balances::AccountData<u64>;
 	type AccountId = u64;
@@ -46,7 +45,6 @@ parameter_types! {
 	pub const ExistentialDeposit: u64 = 1;
 	pub const MaxLocks: u32 = 10;
 }
-
 impl pallet_balances::Config for Test {
 	type AccountStore = System;
 	type Balance = u64;
@@ -62,7 +60,6 @@ parameter_types! {
 	pub const MaxProposals: u32 = 100;
 	pub const MaxMembers: u32 = 100;
 }
-
 type AllianceCollective = pallet_collective::Instance1;
 impl pallet_collective::Config<AllianceCollective> for Test {
 	type DefaultVote = pallet_collective::PrimeDefaultVote;
@@ -76,13 +73,11 @@ impl pallet_collective::Config<AllianceCollective> for Test {
 }
 
 pub struct AllyIdentityVerifier;
-
 impl IdentityVerifier<u64> for AllyIdentityVerifier {
 	fn verify_identity(_who: &u64, _field: u64) -> bool {
 		true
 	}
 }
-
 pub struct AlliProposalProvider;
 impl ProposalProvider<u64, H256, Call> for AlliProposalProvider {
 	fn propose_proposal(
@@ -116,7 +111,6 @@ impl ProposalProvider<u64, H256, Call> for AlliProposalProvider {
 		AllianceMotion::proposal_of(proposal_hash)
 	}
 }
-
 ord_parameter_types! {
 	pub const One: u64 = 1;
 	pub const Two: u64 = 2;
@@ -124,11 +118,9 @@ ord_parameter_types! {
 	pub const Four: u64 = 4;
 	pub const Five: u64 = 5;
 }
-
 parameter_types! {
 	pub const CandidateDeposit: u64 = 25;
 }
-
 impl Config for Test {
 	type CandidateDeposit = CandidateDeposit;
 	type Currency = Balances;
@@ -165,12 +157,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			balances: vec![(1, 10), (2, 20), (3, 30), (4, 40), (5, 50)],
 		},
 		pallet_collective_Instance1: pallet_collective::GenesisConfig {
-			members: vec![1, 2, 3],
-			phantom: Default::default(),
+			..Default::default()
 		},
 		pallet_alliance: pallet_alliance::GenesisConfig {
 			founders: vec![1, 2],
-			fellows: vec![],
+			fellows: vec![3],
 			allies: vec![],
 			phantom: Default::default(),
 		},
@@ -180,10 +171,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	.into();
 	ext.execute_with(|| System::set_block_number(1));
 	ext
-}
-
-pub fn make_proposal(value: u64) -> Call {
-	Call::System(frame_system::Call::remark(value.encode()))
 }
 
 pub fn make_set_rule_proposal(cid: Cid) -> Call {

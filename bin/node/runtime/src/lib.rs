@@ -35,7 +35,7 @@ use frame_support::{
 		Currency, Imbalance, KeyOwnerProofSystem, OnUnbalanced, LockIdentifier,
 		U128CurrencyToVote,
 	},
-	dispatch::DispatchError,
+	dispatch::{DispatchError, DispatchResult},
 };
 use frame_system::{
 	EnsureRoot, EnsureOneOf,
@@ -1117,10 +1117,20 @@ impl IdentityVerifier<AccountId> for AllyIdentityVerifier {
 }
 
 pub struct AlliProposalProvider;
-impl ProposalProvider<AccountId, Hash, Call> for AlliProposalProvider {
+impl ProposalProvider<AccountId, Hash, Origin, Call> for AlliProposalProvider {
 	fn propose_proposal(who: AccountId, threshold: u32, proposal: Call,
 						proposal_hash: Hash) -> Result<u32, DispatchError> {
 		AllianceMotion::do_propose(who, threshold, proposal, proposal_hash)
+	}
+
+	fn vote_proposal(
+		origin: Origin,
+		proposal: Hash,
+		index: ProposalIndex,
+		approve: bool,
+	) -> DispatchResult {
+		AllianceMotion::vote(origin, proposal, index, approve).map_err(|e| e.error)?;
+		Ok(())
 	}
 
 	fn veto_proposal(proposal_hash: Hash) -> u32 {
