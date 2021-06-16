@@ -1162,10 +1162,15 @@ impl<T: Config> Pallet<T> {
 			.collect()
 	}
 
+	/// Get the parent account of an account.
+	pub fn super_account_id(who: &T::AccountId) -> Option<T::AccountId> {
+		SuperOf::<T>::get(who).map(|parent| parent.0)
+	}
+
 	/// Verify the identity info of an account by the identity field.
 	pub fn verify_identity(who: &T::AccountId, field: u64) -> bool {
 		if let Some(identity) = IdentityOf::<T>::get(who).map(|registration| registration.info) {
-			let is_exist = match IdentityField::try_from(field) {
+			match IdentityField::try_from(field) {
 				Ok(IdentityField::Display) => identity.display != Data::None,
 				Ok(IdentityField::Legal) => identity.legal != Data::None,
 				Ok(IdentityField::Web) => identity.web != Data::None,
@@ -1175,17 +1180,7 @@ impl<T: Config> Pallet<T> {
 				Ok(IdentityField::Image) => identity.image != Data::None,
 				Ok(IdentityField::Twitter) => identity.twitter != Data::None,
 				Err(_) => false,
-			};
-			is_exist && Self::verify_judgement(who)
-		} else {
-			false
-		}
-	}
-
-	/// Verify the identity info of an account's parent  by the identity field.
-	pub fn verify_parent_identity(who: &T::AccountId, field: u64) -> bool {
-		if let Some(parent) = SuperOf::<T>::get(who) {
-			Self::verify_identity(&parent.0, field)
+			}
 		} else {
 			false
 		}

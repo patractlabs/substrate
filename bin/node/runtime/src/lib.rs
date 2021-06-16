@@ -1154,36 +1154,48 @@ impl pallet_collective::Config<AllianceCollective> for Runtime {
 
 pub struct AllyIdentityVerifier;
 impl IdentityVerifier<AccountId> for AllyIdentityVerifier {
+	fn super_account_id(who: &AccountId) -> Option<AccountId> {
+		Identity::super_account_id(who)
+	}
+
 	fn verify_identity(who: &AccountId, field: u64) -> bool {
-		Identity::verify_identity(who, field) || Identity::verify_parent_identity(who, field)
+		Identity::verify_identity(who, field)
+	}
+
+	fn verify_judgement(who: &AccountId) -> bool {
+		Identity::verify_judgement(who)
 	}
 }
 
 pub struct AlliProposalProvider;
 impl ProposalProvider<AccountId, Hash, Origin, Call> for AlliProposalProvider {
-	fn propose_proposal(who: AccountId, threshold: u32, proposal: Call,
-						proposal_hash: Hash) -> Result<u32, DispatchError> {
+	fn propose_proposal(
+		who: AccountId,
+		threshold: u32,
+		proposal: Call,
+		proposal_hash: Hash,
+	) -> Result<u32, DispatchError> {
 		AllianceMotion::do_propose(who, threshold, proposal, proposal_hash)
 	}
 
 	fn vote_proposal(
-		origin: Origin,
+		who: AccountId,
 		proposal: Hash,
 		index: ProposalIndex,
 		approve: bool,
-	) -> DispatchResult {
-		AllianceMotion::vote(origin, proposal, index, approve).map_err(|e| e.error)?;
-		Ok(())
+	) -> Result<bool, DispatchError> {
+		AllianceMotion::do_vote(who, proposal, index, approve)
 	}
 
 	fn veto_proposal(proposal_hash: Hash) -> u32 {
 		AllianceMotion::do_disapprove_proposal(proposal_hash)
 	}
 
-	fn close_proposal(proposal_hash: Hash,
-					  proposal_index: ProposalIndex,
-					  proposal_weight_bound: Weight,
-					  length_bound: u32,
+	fn close_proposal(
+		proposal_hash: Hash,
+		proposal_index: ProposalIndex,
+		proposal_weight_bound: Weight,
+		length_bound: u32,
 	) -> Result<(Weight, Pays), DispatchError> {
 		AllianceMotion::close_proposal(proposal_hash, proposal_index, proposal_weight_bound, length_bound)
 	}
