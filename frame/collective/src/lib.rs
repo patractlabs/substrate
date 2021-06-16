@@ -497,7 +497,7 @@ decl_module! {
 			T::WeightInfo::vote(T::MaxMembers::get()),
 			DispatchClass::Operational
 		)]
-		fn vote(origin,
+		pub fn vote(origin,
 			proposal: T::Hash,
 			#[compact] index: ProposalIndex,
 			approve: bool,
@@ -640,9 +640,11 @@ impl<T: Config<I>, I: Instance> Module<T, I> {
 		Self::members().contains(who)
 	}
 
-	pub fn do_propose(who: T::AccountId, threshold: MemberCount,
-					  proposal: <T as Config<I>>::Proposal,
-					  proposal_hash: T::Hash) -> Result<u32, DispatchError> {
+	pub fn do_propose(
+		who: T::AccountId, threshold: MemberCount,
+		proposal: <T as Config<I>>::Proposal,
+		proposal_hash: T::Hash
+	) -> Result<u32, DispatchError> {
 		ensure!(!<ProposalOf<T, I>>::contains_key(proposal_hash), Error::<T, I>::DuplicateProposal);
 
 		let active_proposals =
@@ -662,10 +664,11 @@ impl<T: Config<I>, I: Instance> Module<T, I> {
 		Ok(active_proposals as u32)
 	}
 
-	pub fn close_proposal(proposal_hash: T::Hash,
-			 index: ProposalIndex,
-			 proposal_weight_bound: Weight,
-			 length_bound: u32
+	pub fn close_proposal(
+		proposal_hash: T::Hash,
+		index: ProposalIndex,
+		proposal_weight_bound: Weight,
+		length_bound: u32
 	) -> Result<(Weight, Pays), DispatchError> {
 		let voting = Self::voting(&proposal_hash).ok_or(Error::<T, I>::ProposalMissing)?;
 		ensure!(voting.index == index, Error::<T, I>::WrongIndex);

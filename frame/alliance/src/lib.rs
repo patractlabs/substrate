@@ -71,7 +71,7 @@ pub enum UserIdentity<AccountId> {
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
+	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 
 	use super::*;
@@ -113,7 +113,12 @@ pub mod pallet {
 
 		type IdentityVerifier: IdentityVerifier<Self::AccountId>;
 
-		type ProposalProvider: ProposalProvider<Self::AccountId, Self::Hash, Self::Proposal>;
+		type ProposalProvider: ProposalProvider<
+			Self::AccountId,
+			Self::Hash,
+			OriginFor<Self>,
+			Self::Proposal,
+		>;
 
 		/// The minimum amount of a deposit required for submit candidacy.
 		#[pallet::constant]
@@ -210,9 +215,9 @@ pub mod pallet {
 				Members::<T, I>::insert(MemberRole::Ally, self.allies.clone())
 			}
 
-			//T::InitializeMembers::initialize_members(
-			//	&[self.founders.as_slice(), self.fellows.as_slice()].concat(),
-			//)
+			T::InitializeMembers::initialize_members(
+				&[self.founders.as_slice(), self.fellows.as_slice()].concat(),
+			)
 		}
 	}
 
@@ -276,7 +281,7 @@ pub mod pallet {
 		pub(super) fn propose(
 			origin: OriginFor<T>,
 			proposal: Box<<T as Config<I>>::Proposal>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let proposor = ensure_signed(origin)?;
 			ensure!(
 				Self::is_votable_member(&proposor),
@@ -291,14 +296,28 @@ pub mod pallet {
 
 			let threshold = 2 * Self::votable_member_count() / 3 + 1;
 			T::ProposalProvider::propose_proposal(proposor, threshold, *proposal, proposal_hash)?;
-			Ok(())
+			Ok(().into())
+		}
+
+		#[pallet::weight(0)]
+		pub(super) fn vote(
+			origin: OriginFor<T>,
+			proposal: T::Hash,
+			index: ProposalIndex,
+			approve: bool,
+		) -> DispatchResultWithPostInfo {
+			T::ProposalProvider::vote_proposal(origin, proposal, index, approve)?;
+			Ok(().into())
 		}
 
 		/// Disapprove a proposal, close, and remove it from the system, regardless of its current state.
 		///
 		/// Must be called by the founders.
 		#[pallet::weight(0)]
-		pub(super) fn veto(origin: OriginFor<T>, proposal_hash: T::Hash) -> DispatchResult {
+		pub(super) fn veto(
+			origin: OriginFor<T>,
+			proposal_hash: T::Hash,
+		) -> DispatchResultWithPostInfo {
 			let proposor = ensure_signed(origin)?;
 			ensure!(Self::is_founder(&proposor), Error::<T, I>::NotFounder);
 
@@ -307,7 +326,7 @@ pub mod pallet {
 			match proposal.expect("proposal must be exist; qed").is_sub_type() {
 				Some(Call::set_rule(..)) | Some(Call::elevate_ally(..)) => {
 					T::ProposalProvider::veto_proposal(proposal_hash);
-					Ok(())
+					Ok(().into())
 				}
 				_ => Err(Error::<T, I>::NotVetoableProposal.into()),
 			}
@@ -320,10 +339,10 @@ pub mod pallet {
 			index: ProposalIndex,
 			proposal_weight_bound: Weight,
 			length_bound: u32,
-		) -> DispatchResult {
-			let proposor = ensure_signed(origin)?;
+		) -> DispatchResultWithPostInfo {
+			let who = ensure_signed(origin)?;
 			ensure!(
-				Self::is_votable_member(&proposor),
+				Self::is_votable_member(&who),
 				Error::<T, I>::NotVotableMember
 			);
 
@@ -344,7 +363,7 @@ pub mod pallet {
 					<KickingMembers<T, I>>::remove(strike);
 				}
 			}
-			Ok(())
+			Ok(().into())
 		}
 
 		/// Initialize the founders to the given members.
@@ -352,7 +371,7 @@ pub mod pallet {
 		pub(super) fn init_founders(
 			origin: OriginFor<T>,
 			founders: Vec<T::AccountId>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			ensure_root(origin)?;
 			ensure!(
 				!Self::has_member(MemberRole::Founder),
@@ -368,38 +387,43 @@ pub mod pallet {
 			Members::<T, I>::insert(&MemberRole::Founder, founders.clone());
 
 			Self::deposit_event(Event::FoundersInitialized(founders));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// A IPFS cid of the rules of this alliance concerning membership.
 		#[pallet::weight(0)]
-		pub(super) fn set_rule(origin: OriginFor<T>, rule: cid::Cid) -> DispatchResult {
+		pub(super) fn set_rule(origin: OriginFor<T>, rule: cid::Cid) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 
 			Rule::<T, I>::put(&rule);
 
 			Self::deposit_event(Event::NewRule(rule));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// Announcement IPFS Hash about dispute between two allies and other issues.
 		/// Proposer should publish in polkassembly.io first and talked with others,
 		/// then publish the post into IPFS. Create a ID.
 		#[pallet::weight(0)]
-		pub(super) fn announce(origin: OriginFor<T>, announcement: cid::Cid) -> DispatchResult {
+		pub(super) fn announce(
+			origin: OriginFor<T>,
+			announcement: cid::Cid,
+		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 
-			<Announcements<T, I>>::get().push(announcement);
+			let mut announcements = <Announcements<T, I>>::get();
+			announcements.push(announcement);
+			<Announcements<T, I>>::put(announcements);
 
 			Self::deposit_event(Event::NewAnnouncement(announcement));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// Submit oneself for candidacy.
 		///
 		/// Account must have enough transferable funds in it to pay the candidate deposit.
 		#[pallet::weight(0)]
-		pub(super) fn submit_candidacy(origin: OriginFor<T>) -> DispatchResult {
+		pub(super) fn submit_candidacy(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
 			ensure!(
 				!Self::is_account_blacklist(&who),
@@ -418,7 +442,7 @@ pub mod pallet {
 			Self::add_candidate(&who)?;
 
 			Self::deposit_event(Event::CandidateAdded(who, None, Some(deposit)));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// As a elevated member, nominate for someone to join alliance.
@@ -430,7 +454,7 @@ pub mod pallet {
 		pub(super) fn nominate_candidacy(
 			origin: OriginFor<T>,
 			who: <T::Lookup as StaticLookup>::Source,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let nominator = ensure_signed(origin)?;
 			ensure!(
 				Self::is_votable_member(&nominator),
@@ -449,7 +473,7 @@ pub mod pallet {
 			Self::add_candidate(&who)?;
 
 			Self::deposit_event(Event::CandidateAdded(who, Some(nominator), None));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// Approve a `Candidate` to be a `Ally`.
@@ -457,7 +481,7 @@ pub mod pallet {
 		pub(super) fn approve_candidate(
 			origin: OriginFor<T>,
 			candidate: <T::Lookup as StaticLookup>::Source,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let candidate = T::Lookup::lookup(candidate)?;
 			ensure!(Self::is_candidate(&candidate), Error::<T, I>::NotCandidate);
@@ -467,7 +491,7 @@ pub mod pallet {
 			Self::add_member(&candidate, MemberRole::Ally)?;
 
 			Self::deposit_event(Event::CandidateApproved(candidate));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// Reject a `Candidate` to be a `Outsider`.
@@ -476,7 +500,7 @@ pub mod pallet {
 		pub(super) fn reject_candidate(
 			origin: OriginFor<T>,
 			candidate: <T::Lookup as StaticLookup>::Source,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let candidate = T::Lookup::lookup(candidate)?;
 			ensure!(Self::is_candidate(&candidate), Error::<T, I>::NotCandidate);
@@ -488,7 +512,7 @@ pub mod pallet {
 			}
 
 			Self::deposit_event(Event::CandidateRejected(candidate));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// As a active member, elevate a ally to fellow.
@@ -498,7 +522,7 @@ pub mod pallet {
 		pub(super) fn elevate_ally(
 			origin: OriginFor<T>,
 			ally: <T::Lookup as StaticLookup>::Source,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let ally = T::Lookup::lookup(ally)?;
 			ensure!(Self::is_ally(&ally), Error::<T, I>::NotAlly);
@@ -511,12 +535,12 @@ pub mod pallet {
 			Self::add_member(&ally, MemberRole::Fellow)?;
 
 			Self::deposit_event(Event::AllyElevated(ally));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// As a member, back to outsider and unlock deposit.
 		#[pallet::weight(0)]
-		pub(super) fn retire(origin: OriginFor<T>) -> DispatchResult {
+		pub(super) fn retire(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
 			ensure!(!Self::is_kicking(&who), Error::<T, I>::KickingMember);
 
@@ -527,7 +551,7 @@ pub mod pallet {
 					debug_assert!(err_amount.is_zero());
 				}
 				Self::deposit_event(Event::MemberRetired(who));
-				Ok(())
+				Ok(().into())
 			} else {
 				Err(Error::<T, I>::NotMember.into())
 			}
@@ -538,7 +562,7 @@ pub mod pallet {
 		pub(super) fn kick_member(
 			origin: OriginFor<T>,
 			who: <T::Lookup as StaticLookup>::Source,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let member = T::Lookup::lookup(who)?;
 			ensure!(!Self::is_kicking(&member), Error::<T, I>::KickingMember);
@@ -549,7 +573,7 @@ pub mod pallet {
 					T::Slashed::on_unbalanced(T::Currency::slash_reserved(&member, deposit).0);
 				}
 				Self::deposit_event(Event::MemberKicked(member));
-				Ok(())
+				Ok(().into())
 			} else {
 				Err(Error::<T, I>::NotMember.into())
 			}
@@ -560,7 +584,7 @@ pub mod pallet {
 		pub(super) fn add_blacklist(
 			origin: OriginFor<T>,
 			infos: Vec<UserIdentity<T::AccountId>>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let mut accounts = vec![];
 			let mut webs = vec![];
@@ -573,7 +597,7 @@ pub mod pallet {
 			}
 			Self::do_add_blacklist(&mut accounts, &mut webs)?;
 			Self::deposit_event(Event::BlacklistAdded(infos));
-			Ok(())
+			Ok(().into())
 		}
 
 		/// Remove websites or addresses form blacklist.
@@ -581,7 +605,7 @@ pub mod pallet {
 		pub(super) fn remove_blacklist(
 			origin: OriginFor<T>,
 			infos: Vec<UserIdentity<T::AccountId>>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let mut accounts = vec![];
 			let mut webs = vec![];
@@ -594,7 +618,7 @@ pub mod pallet {
 			}
 			Self::do_remove_blacklist(&mut accounts, &mut webs)?;
 			Self::deposit_event(Event::BlacklistRemoved(infos));
-			Ok(())
+			Ok(().into())
 		}
 	}
 }
@@ -708,8 +732,10 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			Ok(())
 		})?;
 
-		let members = Self::votable_member_sorted();
-		T::MembershipChanged::change_members_sorted(&[], &[who.clone()], &members[..]);
+		if role == MemberRole::Founder || role == MemberRole::Fellow {
+			let members = Self::votable_member_sorted();
+			T::MembershipChanged::change_members_sorted(&[], &[who.clone()], &members[..]);
+		}
 		Ok(())
 	}
 
@@ -786,13 +812,20 @@ pub trait IdentityVerifier<AccountId: Clone + Ord> {
 	fn verify_identity(who: &AccountId, fields: u64) -> bool;
 }
 
-pub trait ProposalProvider<AccountId, Hash, Proposal> {
+pub trait ProposalProvider<AccountId, Hash, Origin, Proposal> {
 	fn propose_proposal(
 		who: AccountId,
 		threshold: u32,
 		proposal: Proposal,
 		proposal_hash: Hash,
 	) -> Result<u32, DispatchError>;
+
+	fn vote_proposal(
+		origin: Origin,
+		proposal: Hash,
+		index: ProposalIndex,
+		approve: bool,
+	) -> DispatchResult;
 
 	fn veto_proposal(proposal_hash: Hash) -> u32;
 
