@@ -74,7 +74,15 @@ impl pallet_collective::Config<AllianceCollective> for Test {
 
 pub struct AllyIdentityVerifier;
 impl IdentityVerifier<u64> for AllyIdentityVerifier {
+	fn super_account_id(_who: &u64) -> Option<u64> {
+		None
+	}
+
 	fn verify_identity(_who: &u64, _field: u64) -> bool {
+		true
+	}
+
+	fn verify_judgement(_who: &u64) -> bool {
 		true
 	}
 }
@@ -89,6 +97,15 @@ impl ProposalProvider<u64, H256, Call> for AlliProposalProvider {
 		AllianceMotion::do_propose(who, threshold, proposal, proposal_hash)
 	}
 
+	fn vote_proposal(
+		who: u64,
+		proposal: H256,
+		index: ProposalIndex,
+		approve: bool,
+	) -> Result<bool, DispatchError> {
+		AllianceMotion::do_vote(who, proposal, index, approve)
+	}
+
 	fn veto_proposal(proposal_hash: H256) -> u32 {
 		AllianceMotion::do_disapprove_proposal(proposal_hash)
 	}
@@ -99,7 +116,7 @@ impl ProposalProvider<u64, H256, Call> for AlliProposalProvider {
 		proposal_weight_bound: Weight,
 		length_bound: u32,
 	) -> Result<(Weight, Pays), DispatchError> {
-		AllianceMotion::close_proposal(
+		AllianceMotion::do_close(
 			proposal_hash,
 			proposal_index,
 			proposal_weight_bound,

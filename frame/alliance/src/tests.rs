@@ -59,18 +59,8 @@ fn close_set_rule_works() {
 			Origin::signed(1),
 			Box::new(proposal.clone())
 		));
-		assert_ok!(AllianceMotion::vote(
-			Origin::signed(2),
-			hash.clone(),
-			0,
-			true
-		));
-		assert_ok!(AllianceMotion::vote(
-			Origin::signed(3),
-			hash.clone(),
-			0,
-			true
-		));
+		assert_ok!(Alliance::vote(Origin::signed(2), hash.clone(), 0, true));
+		assert_ok!(Alliance::vote(Origin::signed(3), hash.clone(), 0, true));
 		assert_ok!(Alliance::close(
 			Origin::signed(1),
 			hash.clone(),

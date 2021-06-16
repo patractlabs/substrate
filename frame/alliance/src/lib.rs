@@ -32,6 +32,7 @@ use sp_std::prelude::*;
 use frame_support::{
 	codec::{Decode, Encode},
 	dispatch::{DispatchError, DispatchResult, Dispatchable, GetDispatchInfo, PostDispatchInfo},
+	ensure,
 	traits::{
 		ChangeMembers, Currency, InitializeMembers, IsSubType, LockableCurrency, OnUnbalanced,
 		ReservableCurrency,
@@ -113,12 +114,7 @@ pub mod pallet {
 
 		type IdentityVerifier: IdentityVerifier<Self::AccountId>;
 
-		type ProposalProvider: ProposalProvider<
-			Self::AccountId,
-			Self::Hash,
-			OriginFor<Self>,
-			Self::Proposal,
-		>;
+		type ProposalProvider: ProposalProvider<Self::AccountId, Self::Hash, Self::Proposal>;
 
 		/// The minimum amount of a deposit required for submit candidacy.
 		#[pallet::constant]
@@ -140,7 +136,9 @@ pub mod pallet {
 		NotInBlacklist,
 		KickingMember,
 		InsufficientCandidateFunds,
-		NoIdentity,
+		NoJudgedIdentity,
+		NoDisplayName,
+		NoWebsite,
 		MissingProposalHash,
 		NotVetoableProposal,
 	}
@@ -192,7 +190,7 @@ pub mod pallet {
 				.chain(self.allies.iter())
 			{
 				assert!(
-					Pallet::<T, I>::has_identity(m),
+					Pallet::<T, I>::has_identity(m).is_ok(),
 					"Member does not set identity!"
 				);
 			}
@@ -278,7 +276,7 @@ pub mod pallet {
 		///
 		/// Requires the sender to be elevated member(founders/fellows).
 		#[pallet::weight(0)]
-		pub(super) fn propose(
+		pub fn propose(
 			origin: OriginFor<T>,
 			proposal: Box<<T as Config<I>>::Proposal>,
 		) -> DispatchResultWithPostInfo {
@@ -300,13 +298,19 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(0)]
-		pub(super) fn vote(
+		pub fn vote(
 			origin: OriginFor<T>,
 			proposal: T::Hash,
 			index: ProposalIndex,
 			approve: bool,
 		) -> DispatchResultWithPostInfo {
-			T::ProposalProvider::vote_proposal(origin, proposal, index, approve)?;
+			let who = ensure_signed(origin)?;
+			ensure!(
+				Self::is_votable_member(&who),
+				Error::<T, I>::NotVotableMember
+			);
+
+			T::ProposalProvider::vote_proposal(who, proposal, index, approve)?;
 			Ok(().into())
 		}
 
@@ -314,10 +318,7 @@ pub mod pallet {
 		///
 		/// Must be called by the founders.
 		#[pallet::weight(0)]
-		pub(super) fn veto(
-			origin: OriginFor<T>,
-			proposal_hash: T::Hash,
-		) -> DispatchResultWithPostInfo {
+		pub fn veto(origin: OriginFor<T>, proposal_hash: T::Hash) -> DispatchResultWithPostInfo {
 			let proposor = ensure_signed(origin)?;
 			ensure!(Self::is_founder(&proposor), Error::<T, I>::NotFounder);
 
@@ -333,7 +334,7 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(0)]
-		pub(super) fn close(
+		pub fn close(
 			origin: OriginFor<T>,
 			proposal_hash: T::Hash,
 			index: ProposalIndex,
@@ -368,7 +369,7 @@ pub mod pallet {
 
 		/// Initialize the founders to the given members.
 		#[pallet::weight(0)]
-		pub(super) fn init_founders(
+		pub fn init_founders(
 			origin: OriginFor<T>,
 			founders: Vec<T::AccountId>,
 		) -> DispatchResultWithPostInfo {
@@ -378,7 +379,7 @@ pub mod pallet {
 				Error::<T, I>::FoundersAlreadyInitialized
 			);
 			for founder in &founders {
-				ensure!(Self::has_identity(founder), Error::<T, I>::NoIdentity);
+				Self::has_identity(founder)?;
 			}
 
 			let mut founders = founders;
@@ -392,7 +393,7 @@ pub mod pallet {
 
 		/// A IPFS cid of the rules of this alliance concerning membership.
 		#[pallet::weight(0)]
-		pub(super) fn set_rule(origin: OriginFor<T>, rule: cid::Cid) -> DispatchResultWithPostInfo {
+		pub fn set_rule(origin: OriginFor<T>, rule: cid::Cid) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 
 			Rule::<T, I>::put(&rule);
@@ -405,7 +406,7 @@ pub mod pallet {
 		/// Proposer should publish in polkassembly.io first and talked with others,
 		/// then publish the post into IPFS. Create a ID.
 		#[pallet::weight(0)]
-		pub(super) fn announce(
+		pub fn announce(
 			origin: OriginFor<T>,
 			announcement: cid::Cid,
 		) -> DispatchResultWithPostInfo {
@@ -423,7 +424,7 @@ pub mod pallet {
 		///
 		/// Account must have enough transferable funds in it to pay the candidate deposit.
 		#[pallet::weight(0)]
-		pub(super) fn submit_candidacy(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
+		pub fn submit_candidacy(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
 			ensure!(
 				!Self::is_account_blacklist(&who),
@@ -432,7 +433,7 @@ pub mod pallet {
 			ensure!(!Self::is_candidate(&who), Error::<T, I>::AlreadyCandidate);
 			ensure!(!Self::is_member(&who), Error::<T, I>::AlreadyMember);
 			// check user self or parent should has verified identity to reuse display name and website.
-			ensure!(Self::has_identity(&who), Error::<T, I>::NoIdentity);
+			Self::has_identity(&who)?;
 
 			let deposit = T::CandidateDeposit::get();
 			T::Currency::reserve(&who, deposit)
@@ -451,7 +452,7 @@ pub mod pallet {
 		///
 		/// The dispatch origin for this call must be _Signed_ and a elevated member.
 		#[pallet::weight(0)]
-		pub(super) fn nominate_candidacy(
+		pub fn nominate_candidacy(
 			origin: OriginFor<T>,
 			who: <T::Lookup as StaticLookup>::Source,
 		) -> DispatchResultWithPostInfo {
@@ -468,7 +469,7 @@ pub mod pallet {
 			ensure!(!Self::is_candidate(&who), Error::<T, I>::AlreadyCandidate);
 			ensure!(!Self::is_member(&who), Error::<T, I>::AlreadyMember);
 			// check user self or parent should has verified identity to reuse display name and website.
-			ensure!(Self::has_identity(&who), Error::<T, I>::NoIdentity);
+			Self::has_identity(&who)?;
 
 			Self::add_candidate(&who)?;
 
@@ -478,7 +479,7 @@ pub mod pallet {
 
 		/// Approve a `Candidate` to be a `Ally`.
 		#[pallet::weight(0)]
-		pub(super) fn approve_candidate(
+		pub fn approve_candidate(
 			origin: OriginFor<T>,
 			candidate: <T::Lookup as StaticLookup>::Source,
 		) -> DispatchResultWithPostInfo {
@@ -497,7 +498,7 @@ pub mod pallet {
 		/// Reject a `Candidate` to be a `Outsider`.
 		/// Only the members (`Fellows` and `Founders`) can vote to approve/reject the `Candidate`.
 		#[pallet::weight(0)]
-		pub(super) fn reject_candidate(
+		pub fn reject_candidate(
 			origin: OriginFor<T>,
 			candidate: <T::Lookup as StaticLookup>::Source,
 		) -> DispatchResultWithPostInfo {
@@ -519,7 +520,7 @@ pub mod pallet {
 		///
 		/// The dispatch origin for this call must be _Signed_ and a member.
 		#[pallet::weight(0)]
-		pub(super) fn elevate_ally(
+		pub fn elevate_ally(
 			origin: OriginFor<T>,
 			ally: <T::Lookup as StaticLookup>::Source,
 		) -> DispatchResultWithPostInfo {
@@ -540,7 +541,7 @@ pub mod pallet {
 
 		/// As a member, back to outsider and unlock deposit.
 		#[pallet::weight(0)]
-		pub(super) fn retire(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
+		pub fn retire(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
 			ensure!(!Self::is_kicking(&who), Error::<T, I>::KickingMember);
 
@@ -559,7 +560,7 @@ pub mod pallet {
 
 		/// Kick a member to outsider with its deposit slashed.
 		#[pallet::weight(0)]
-		pub(super) fn kick_member(
+		pub fn kick_member(
 			origin: OriginFor<T>,
 			who: <T::Lookup as StaticLookup>::Source,
 		) -> DispatchResultWithPostInfo {
@@ -581,7 +582,7 @@ pub mod pallet {
 
 		/// Add websites or addresses into blacklist.
 		#[pallet::weight(0)]
-		pub(super) fn add_blacklist(
+		pub fn add_blacklist(
 			origin: OriginFor<T>,
 			infos: Vec<UserIdentity<T::AccountId>>,
 		) -> DispatchResultWithPostInfo {
@@ -602,7 +603,7 @@ pub mod pallet {
 
 		/// Remove websites or addresses form blacklist.
 		#[pallet::weight(0)]
-		pub(super) fn remove_blacklist(
+		pub fn remove_blacklist(
 			origin: OriginFor<T>,
 			infos: Vec<UserIdentity<T::AccountId>>,
 		) -> DispatchResultWithPostInfo {
@@ -802,17 +803,42 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		Ok(())
 	}
 
-	fn has_identity(who: &T::AccountId) -> bool {
-		T::IdentityVerifier::verify_identity(who, IDENTITY_FIELD_DISPLAY)
-			&& T::IdentityVerifier::verify_identity(who, IDENTITY_FIELD_WEB)
+	fn has_identity(who: &T::AccountId) -> DispatchResult {
+		let judgement = |w: &T::AccountId| -> DispatchResult {
+			ensure!(
+				T::IdentityVerifier::verify_identity(w, IDENTITY_FIELD_WEB),
+				Error::<T, I>::NoWebsite
+			);
+			ensure!(
+				T::IdentityVerifier::verify_identity(w, IDENTITY_FIELD_DISPLAY),
+				Error::<T, I>::NoDisplayName
+			);
+			ensure!(
+				T::IdentityVerifier::verify_judgement(w),
+				Error::<T, I>::NoJudgedIdentity
+			);
+			Ok(())
+		};
+
+		let res = judgement(who);
+		if res.is_err() {
+			if let Some(parent) = T::IdentityVerifier::super_account_id(who) {
+				return judgement(&parent);
+			}
+		}
+		res
 	}
 }
 
 pub trait IdentityVerifier<AccountId: Clone + Ord> {
+	fn super_account_id(who: &AccountId) -> Option<AccountId>;
+
 	fn verify_identity(who: &AccountId, fields: u64) -> bool;
+
+	fn verify_judgement(who: &AccountId) -> bool;
 }
 
-pub trait ProposalProvider<AccountId, Hash, Origin, Proposal> {
+pub trait ProposalProvider<AccountId, Hash, Proposal> {
 	fn propose_proposal(
 		who: AccountId,
 		threshold: u32,
@@ -821,11 +847,11 @@ pub trait ProposalProvider<AccountId, Hash, Origin, Proposal> {
 	) -> Result<u32, DispatchError>;
 
 	fn vote_proposal(
-		origin: Origin,
+		who: AccountId,
 		proposal: Hash,
 		index: ProposalIndex,
 		approve: bool,
-	) -> DispatchResult;
+	) -> Result<bool, DispatchError>;
 
 	fn veto_proposal(proposal_hash: Hash) -> u32;
 

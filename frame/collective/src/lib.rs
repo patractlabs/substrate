@@ -497,7 +497,7 @@ decl_module! {
 			T::WeightInfo::vote(T::MaxMembers::get()),
 			DispatchClass::Operational
 		)]
-		pub fn vote(origin,
+		fn vote(origin,
 			proposal: T::Hash,
 			#[compact] index: ProposalIndex,
 			approve: bool,
@@ -506,41 +506,7 @@ decl_module! {
 			let members = Self::members();
 			ensure!(members.contains(&who), Error::<T, I>::NotMember);
 
-			let mut voting = Self::voting(&proposal).ok_or(Error::<T, I>::ProposalMissing)?;
-			ensure!(voting.index == index, Error::<T, I>::WrongIndex);
-
-			let position_yes = voting.ayes.iter().position(|a| a == &who);
-			let position_no = voting.nays.iter().position(|a| a == &who);
-
-			// Detects first vote of the member in the motion
-			let is_account_voting_first_time = position_yes.is_none() && position_no.is_none();
-
-			if approve {
-				if position_yes.is_none() {
-					voting.ayes.push(who.clone());
-				} else {
-					Err(Error::<T, I>::DuplicateVote)?
-				}
-				if let Some(pos) = position_no {
-					voting.nays.swap_remove(pos);
-				}
-			} else {
-				if position_no.is_none() {
-					voting.nays.push(who.clone());
-				} else {
-					Err(Error::<T, I>::DuplicateVote)?
-				}
-				if let Some(pos) = position_yes {
-					voting.ayes.swap_remove(pos);
-				}
-			}
-
-			let yes_votes = voting.ayes.len() as MemberCount;
-			let no_votes = voting.nays.len() as MemberCount;
-			Self::deposit_event(RawEvent::Voted(who, proposal, approve, yes_votes, no_votes));
-
-			Voting::<T, I>::insert(&proposal, voting);
-
+			let is_account_voting_first_time = Self::do_vote(who, proposal, index, approve)?;
 			if is_account_voting_first_time {
 				Ok((
 					Some(T::WeightInfo::vote(members.len() as u32)),
@@ -606,7 +572,7 @@ decl_module! {
 		) -> DispatchResultWithPostInfo {
 			let _ = ensure_signed(origin)?;
 
-			let (weight, pays) =  Self::close_proposal(proposal_hash, index, proposal_weight_bound, length_bound)?;
+			let (weight, pays) =  Self::do_close(proposal_hash, index, proposal_weight_bound, length_bound)?;
 			Ok((Some(weight), pays).into())
 		}
 
@@ -664,7 +630,51 @@ impl<T: Config<I>, I: Instance> Module<T, I> {
 		Ok(active_proposals as u32)
 	}
 
-	pub fn close_proposal(
+	pub fn do_vote(
+		who: T::AccountId,
+		proposal: T::Hash,
+		index: ProposalIndex,
+		approve: bool,
+	) -> Result<bool, DispatchError> {
+		let mut voting = Self::voting(&proposal).ok_or(Error::<T, I>::ProposalMissing)?;
+		ensure!(voting.index == index, Error::<T, I>::WrongIndex);
+
+		let position_yes = voting.ayes.iter().position(|a| a == &who);
+		let position_no = voting.nays.iter().position(|a| a == &who);
+
+		// Detects first vote of the member in the motion
+		let is_account_voting_first_time = position_yes.is_none() && position_no.is_none();
+
+		if approve {
+			if position_yes.is_none() {
+				voting.ayes.push(who.clone());
+			} else {
+				Err(Error::<T, I>::DuplicateVote)?
+			}
+			if let Some(pos) = position_no {
+				voting.nays.swap_remove(pos);
+			}
+		} else {
+			if position_no.is_none() {
+				voting.nays.push(who.clone());
+			} else {
+				Err(Error::<T, I>::DuplicateVote)?
+			}
+			if let Some(pos) = position_yes {
+				voting.ayes.swap_remove(pos);
+			}
+		}
+
+		let yes_votes = voting.ayes.len() as MemberCount;
+		let no_votes = voting.nays.len() as MemberCount;
+		Self::deposit_event(RawEvent::Voted(who, proposal, approve, yes_votes, no_votes));
+
+		Voting::<T, I>::insert(&proposal, voting);
+
+		Ok(is_account_voting_first_time)
+	}
+
+	pub fn do_close(
 		proposal_hash: T::Hash,
 		index: ProposalIndex,
 		proposal_weight_bound: Weight,
