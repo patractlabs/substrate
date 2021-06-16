@@ -1168,7 +1168,7 @@ impl IdentityVerifier<AccountId> for AllyIdentityVerifier {
 }
 
 pub struct AlliProposalProvider;
-impl ProposalProvider<AccountId, Hash, Origin, Call> for AlliProposalProvider {
+impl ProposalProvider<AccountId, Hash, Call> for AlliProposalProvider {
 	fn propose_proposal(
 		who: AccountId,
 		threshold: u32,
@@ -1197,7 +1197,7 @@ impl ProposalProvider<AccountId, Hash, Origin, Call> for AlliProposalProvider {
 		proposal_weight_bound: Weight,
 		length_bound: u32,
 	) -> Result<(Weight, Pays), DispatchError> {
-		AllianceMotion::close_proposal(proposal_hash, proposal_index, proposal_weight_bound, length_bound)
+		AllianceMotion::do_close(proposal_hash, proposal_index, proposal_weight_bound, length_bound)
 	}
 
 	fn proposal_of(proposal_hash: Hash) -> Option<Call> {
