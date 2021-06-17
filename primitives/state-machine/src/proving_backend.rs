@@ -260,12 +260,13 @@ impl<'a, S, H> Backend<H> for ProvingBackend<'a, S, H>
 		self.0.child_storage(child_info, key)
 	}
 
-	fn apply_to_child_keys_while<F: FnMut(&[u8]) -> bool>(
+	fn apply_to_keys_while<F: FnMut(&[u8]) -> bool>(
 		&self,
-		child_info: &ChildInfo,
+		child_info: Option<&ChildInfo>,
+		prefix: Option<&[u8]>,
 		f: F,
 	) {
-		self.0.apply_to_child_keys_while(child_info, f)
+		self.0.apply_to_keys_while(child_info, prefix, f)
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -328,7 +329,7 @@ impl<'a, S, H> Backend<H> for ProvingBackend<'a, S, H>
 		self.0.child_storage_root(child_info, delta)
 	}
 
-	fn register_overlay_stats(&mut self, _stats: &crate::stats::StateMachineStats) { }
+	fn register_overlay_stats(&self, _stats: &crate::stats::StateMachineStats) { }
 
 	fn usage_info(&self) -> crate::stats::UsageInfo {
 		self.0.usage_info()
