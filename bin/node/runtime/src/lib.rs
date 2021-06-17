@@ -1109,8 +1109,8 @@ impl pallet_collective::Config<AllianceCollective> for Runtime {
 	type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
 }
 
-pub struct AllyIdentityVerifier;
-impl IdentityVerifier<AccountId> for AllyIdentityVerifier {
+pub struct AllianceIdentityVerifier;
+impl IdentityVerifier<AccountId> for AllianceIdentityVerifier {
 	fn super_account_id(who: &AccountId) -> Option<AccountId> {
 		Identity::super_account_id(who)
 	}
@@ -1124,8 +1124,8 @@ impl IdentityVerifier<AccountId> for AllyIdentityVerifier {
 	}
 }
 
-pub struct AlliProposalProvider;
-impl ProposalProvider<AccountId, Hash, Call> for AlliProposalProvider {
+pub struct AllianceProposalProvider;
+impl ProposalProvider<AccountId, Hash, Call> for AllianceProposalProvider {
 	fn propose_proposal(
 		who: AccountId,
 		threshold: u32,
@@ -1174,8 +1174,8 @@ impl pallet_alliance::Config for Runtime {
 	type InitializeMembers = AllianceMotion;
 	type MembershipChanged = AllianceMotion;
 	type Slashed = Treasury;
-	type IdentityVerifier = AllyIdentityVerifier;
-	type ProposalProvider = AlliProposalProvider;
+	type IdentityVerifier = AllianceIdentityVerifier;
+	type ProposalProvider = AllianceProposalProvider;
 	type CandidateDeposit = CandidateDeposit;
 }
 
