@@ -128,6 +128,7 @@ pub struct SealTransfer<C: Config> {
 #[derive(DefaultNoBound, AddSetter, Clone, HostDebugWithGeneric, WrapWithGeneric)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct SealCall<C: Config> {
+	flag: u32,
 	#[set]
 	callee: Option<AccountIdOf<C>>,
 	#[set]
@@ -144,9 +145,10 @@ pub struct SealCall<C: Config> {
 }
 
 impl<C: Config> SealCall<C> {
-	pub fn new(gas: Weight) -> Self {
+	pub fn new(gas: Weight, flag: u32) -> Self {
 		SealCall {
 			gas,
+			flag,
 			..Default::default()
 		}
 	}

@@ -2484,7 +2484,7 @@ mod tests {
 				0,
 				CHARLIE.encode(),
 				None,
-			));
+			).0);
 
 			// Calling into oneself fails
 			assert_err!(
@@ -2496,7 +2496,7 @@ mod tests {
 					0,
 					BOB.encode(),
 					None,
-				).map_err(|e| e.0.error),
+				).0.map_err(|e| e.0.error),
 				<Error<Test>>::ReentranceDenied,
 			);
 		});
@@ -2532,7 +2532,7 @@ mod tests {
 					0,
 					vec![0],
 					None,
-				).map_err(|e| e.0.error),
+				).0.map_err(|e| e.0.error),
 				<Error<Test>>::ReentranceDenied,
 			);
 		});

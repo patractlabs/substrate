@@ -464,10 +464,11 @@ pub mod pallet {
 		fn log_tracing(trace: NestedRuntime<T>) {
 			use sp_runtime::SaturatedConversion;
 
-			let s = serde_json::to_string(&trace).expect("must could serialize to json.");
-			let block_number = frame_system::Pallet::<T>::block_number().saturated_into::<u32>();
-			let index = frame_system::Pallet::<T>::extrinsic_index().expect("must be a extrinsic now.");
-			ep_io::contract_tracing::store_tracing(block_number, index, s.as_bytes().to_vec());
+			let _s = serde_json::to_string(&trace).expect("must could serialize to json.");
+			let _block_number = frame_system::Pallet::<T>::block_number().saturated_into::<u32>();
+			let _index = frame_system::Pallet::<T>::extrinsic_index().expect("must be a extrinsic now.");
+			#[cfg(feature = "europa-io")]
+			ep_io::contract_tracing::store_tracing(_block_number, _index, _s.as_bytes().to_vec());
 		}
 	}
 

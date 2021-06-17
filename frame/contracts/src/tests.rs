@@ -67,6 +67,20 @@ frame_support::construct_runtime!(
 	}
 );
 
+impl serde::Serialize for Test {
+	fn serialize<S>(&self, _s: S) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error> where
+		S: serde::Serializer {
+		todo!()
+	}
+}
+
+impl<'de> serde::Deserialize<'de> for Test {
+	fn deserialize<D>(_d: D) -> Result<Self, <D as serde::Deserializer<'de>>::Error> where
+		D: serde::Deserializer<'de> {
+		todo!()
+	}
+}
+
 #[macro_use]
 pub mod test_utils {
 	use super::{Test, Balances, System};

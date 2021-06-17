@@ -36,9 +36,6 @@ use sp_runtime::{
 	traits::{Bounded, CheckedDiv, CheckedMul, SaturatedConversion, Saturating, Zero},
 };
 
-#[cfg(feature = "std")]
-use serde::{Serialize, Deserialize};
-
 /// Information about the required deposit and resulting rent.
 ///
 /// The easiest way to guarantee that a contract stays alive is to assert that
@@ -51,7 +48,7 @@ use serde::{Serialize, Deserialize};
 #[derive(codec::Encode, DefaultNoBound)]
 // #[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "std", derive(frame_support::DebugNoBound, PartialEq, Clone))]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct RentStatus<T: Config> {
 	/// Required deposit assuming that this contract is the only user of its code.
 	pub max_deposit: BalanceOf<T>,

@@ -706,10 +706,17 @@ where
 		output_ptr: u32,
 		output_len_ptr: u32
 	) -> Result<ReturnCode, TrapReason> {
+		let mut protege = SealCall::<E::T>::new(gas, flags.bits());
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
+
 		self.charge_gas(RuntimeCosts::CallBase(input_data_len))?;
 		let callee: <<E as Ext>::T as frame_system::Config>::AccountId =
 			self.read_sandbox_memory_as(callee_ptr, callee_len)?;
+		protege.set_callee(Some(callee.clone()));
+
 		let value: BalanceOf<<E as Ext>::T> = self.read_sandbox_memory_as(value_ptr, value_len)?;
+		protege.set_value(Some(value));
+
 		let input_data = if flags.contains(CallFlags::CLONE_INPUT) {
 			self.input_data.as_ref().ok_or_else(|| Error::<E::T>::InputForwarded)?.clone()
 		} else if flags.contains(CallFlags::FORWARD_INPUT) {
@@ -717,6 +724,8 @@ where
 		} else {
 			self.read_sandbox_memory(input_data_ptr, input_data_len)?
 		};
+		protege.set_input(Some(input_data.clone().into()));
+
 		if value > 0u32.into() {
 			self.charge_gas(RuntimeCosts::CallSurchargeTransfer)?;
 		}
@@ -748,8 +757,12 @@ where
 			self.write_sandbox_output(output_ptr, output_len_ptr, &output.data, true, |len| {
 				Some(RuntimeCosts::CallCopyOut(len))
 			})?;
+			protege.set_output(Some(output.data.clone().into()));
 		}
-		Ok(Runtime::<E>::exec_into_return_code(call_outcome.map(|r| r.0).map_err(|r| r.0))?)
+
+		let return_code = Runtime::<E>::exec_into_return_code(call_outcome.map(|r| r.0).map_err(|r| r.0))?;
+		protege.set_result(Some(return_code));
+		Ok(return_code)
 	}
 }
 
