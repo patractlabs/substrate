@@ -35,7 +35,7 @@ use frame_support::{
 		Currency, Imbalance, KeyOwnerProofSystem, OnUnbalanced, LockIdentifier,
 		U128CurrencyToVote,
 	},
-	dispatch::{DispatchError, DispatchResult},
+	dispatch::DispatchError,
 };
 use frame_system::{
 	EnsureRoot, EnsureOneOf,
