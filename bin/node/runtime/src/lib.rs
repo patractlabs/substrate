@@ -1268,7 +1268,7 @@ construct_runtime!(
 		Gilt: pallet_gilt::{Pallet, Call, Storage, Event<T>, Config},
 		Uniques: pallet_uniques::{Pallet, Call, Storage, Event<T>},
 		TransactionStorage: pallet_transaction_storage::{Pallet, Call, Storage, Inherent, Config<T>, Event<T>},
-		AllianceMotion: pallet_collective::<Instance3>::{Pallet, Call, Storage, Origin<T>, Event<T>, Config<T>},
+		AllianceMotion: pallet_collective::<Instance3>::{Pallet, Storage, Origin<T>, Event<T>},
 		Alliance: pallet_alliance::{Pallet, Call, Storage, Event<T>},
 	}
 );

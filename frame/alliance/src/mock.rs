@@ -1,5 +1,5 @@
 pub use cid::Cid;
-pub use frame_support::{ord_parameter_types, parameter_types};
+pub use frame_support::{ord_parameter_types, parameter_types, traits::SortedMembers};
 pub use frame_system::EnsureSignedBy;
 pub use multihash::U64;
 pub use sp_core::H256;
@@ -144,7 +144,7 @@ impl Config for Test {
 	type Event = Event;
 	type IdentityVerifier = AllyIdentityVerifier;
 	type InitializeMembers = AllianceMotion;
-	type SuperMajorityOrigin = EnsureSignedBy<Three, u64>;
+	type SuperMajorityOrigin = EnsureSignedBy<One, u64>;
 	type MembershipChanged = AllianceMotion;
 	type Proposal = Call;
 	type ProposalProvider = AlliProposalProvider;
@@ -162,7 +162,7 @@ frame_support::construct_runtime!(
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
-		AllianceMotion: pallet_collective::<Instance1>::{Pallet, Call, Storage, Origin<T>, Event<T>, Config<T>},
+		AllianceMotion: pallet_collective::<Instance1>::{Pallet, Storage, Origin<T>, Event<T>, Config<T>},
 		Alliance: pallet_alliance::{Pallet, Call, Storage, Event<T>, Config<T>},
 	}
 );
@@ -171,7 +171,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut ext: sp_io::TestExternalities = GenesisConfig {
 		frame_system: Default::default(),
 		pallet_balances: pallet_balances::GenesisConfig {
-			balances: vec![(1, 10), (2, 20), (3, 30), (4, 40), (5, 50)],
+			balances: vec![(1, 10), (2, 20), (3, 30), (4, 40), (5, 20)],
 		},
 		pallet_collective_Instance1: pallet_collective::GenesisConfig {
 			..Default::default()
@@ -190,6 +190,14 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	ext
 }
 
+pub fn make_proposal(value: u64) -> Call {
+	Call::System(frame_system::Call::remark(value.encode()))
+}
+
 pub fn make_set_rule_proposal(cid: Cid) -> Call {
 	Call::Alliance(pallet_alliance::Call::set_rule(cid))
+}
+
+pub fn make_kick_member_proposal(who: u64) -> Call {
+	Call::Alliance(pallet_alliance::Call::kick_member(who))
 }
