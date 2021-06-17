@@ -4,6 +4,13 @@ use frame_system::{EventRecord, Phase};
 use super::*;
 use crate::mock::*;
 
+fn test_cid() -> Cid {
+	let cid = "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"
+		.parse()
+		.unwrap();
+	Cid::new(cid)
+}
+
 #[test]
 fn propose_works() {
 	new_test_ext().execute_with(|| {
@@ -80,11 +87,7 @@ fn veto_works() {
 			Error::<Test, ()>::NotVetoableProposal
 		);
 
-		let cid = Cid::new(
-			"QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"
-				.parse()
-				.unwrap(),
-		);
+		let cid = test_cid();
 		let vetoable_proposal = make_set_rule_proposal(cid);
 		let vetoable_hash: H256 = vetoable_proposal.blake2_256().into();
 		assert_ok!(Alliance::propose(
@@ -180,11 +183,7 @@ fn close_works() {
 #[test]
 fn set_rule_works() {
 	new_test_ext().execute_with(|| {
-		let cid = Cid::new(
-			"QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"
-				.parse()
-				.unwrap(),
-		);
+		let cid = test_cid();
 		assert_ok!(Alliance::set_rule(Origin::signed(1), cid));
 		assert_eq!(Alliance::rule(), Some(cid));
 
@@ -195,11 +194,7 @@ fn set_rule_works() {
 #[test]
 fn announce_works() {
 	new_test_ext().execute_with(|| {
-		let cid = Cid::new(
-			"QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"
-				.parse()
-				.unwrap(),
-		);
+		let cid = test_cid();
 		assert_ok!(Alliance::announce(Origin::signed(1), cid));
 		assert_eq!(Alliance::announcements(), vec![cid]);
 

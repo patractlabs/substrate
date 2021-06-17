@@ -160,21 +160,17 @@ frame_support::construct_runtime!(
 		NodeBlock = Block,
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
-		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
+		System: frame_system::{Pallet, Call, Storage, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
-		AllianceMotion: pallet_collective::<Instance1>::{Pallet, Storage, Origin<T>, Event<T>, Config<T>},
+		AllianceMotion: pallet_collective::<Instance1>::{Pallet, Storage, Origin<T>, Event<T>},
 		Alliance: pallet_alliance::{Pallet, Call, Storage, Event<T>, Config<T>},
 	}
 );
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut ext: sp_io::TestExternalities = GenesisConfig {
-		frame_system: Default::default(),
 		pallet_balances: pallet_balances::GenesisConfig {
 			balances: vec![(1, 10), (2, 20), (3, 30), (4, 40), (5, 20)],
-		},
-		pallet_collective_Instance1: pallet_collective::GenesisConfig {
-			..Default::default()
 		},
 		pallet_alliance: pallet_alliance::GenesisConfig {
 			founders: vec![1, 2],
@@ -186,6 +182,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	.build_storage()
 	.unwrap()
 	.into();
+
 	ext.execute_with(|| System::set_block_number(1));
 	ext
 }
