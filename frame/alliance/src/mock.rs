@@ -201,3 +201,10 @@ pub fn make_set_rule_proposal(cid: Cid) -> Call {
 pub fn make_kick_member_proposal(who: u64) -> Call {
 	Call::Alliance(pallet_alliance::Call::kick_member(who))
 }
+
+pub fn mock_cid() -> Cid {
+	let cid = "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"
+		.parse()
+		.unwrap();
+	Cid::new(cid)
+}
