@@ -74,8 +74,8 @@ impl pallet_collective::Config<AllianceCollective> for Test {
 	type WeightInfo = ();
 }
 
-pub struct AllyIdentityVerifier;
-impl IdentityVerifier<u64> for AllyIdentityVerifier {
+pub struct AllianceIdentityVerifier;
+impl IdentityVerifier<u64> for AllianceIdentityVerifier {
 	fn super_account_id(_who: &u64) -> Option<u64> {
 		None
 	}
@@ -88,8 +88,9 @@ impl IdentityVerifier<u64> for AllyIdentityVerifier {
 		true
 	}
 }
-pub struct AlliProposalProvider;
-impl ProposalProvider<u64, H256, Call> for AlliProposalProvider {
+
+pub struct AllianceProposalProvider;
+impl ProposalProvider<u64, H256, Call> for AllianceProposalProvider {
 	fn propose_proposal(
 		who: u64,
 		threshold: u32,
@@ -144,12 +145,12 @@ impl Config for Test {
 	type CandidateDeposit = CandidateDeposit;
 	type Currency = Balances;
 	type Event = Event;
-	type IdentityVerifier = AllyIdentityVerifier;
+	type IdentityVerifier = AllianceIdentityVerifier;
 	type InitializeMembers = AllianceMotion;
 	type SuperMajorityOrigin = EnsureSignedBy<One, u64>;
 	type MembershipChanged = AllianceMotion;
 	type Proposal = Call;
-	type ProposalProvider = AlliProposalProvider;
+	type ProposalProvider = AllianceProposalProvider;
 	type Slashed = ();
 }
 
