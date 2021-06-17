@@ -130,6 +130,7 @@ pub mod pallet {
 		NotMember,
 		NotAlly,
 		NotFounder,
+		NotKickingMember,
 		NotVotableMember,
 		AlreadyElevated,
 		AlreadyInBlacklist,
@@ -566,7 +567,7 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let member = T::Lookup::lookup(who)?;
-			ensure!(!Self::is_kicking(&member), Error::<T, I>::KickingMember);
+			ensure!(Self::is_kicking(&member), Error::<T, I>::NotKickingMember);
 
 			if let Some(role) = Self::member_role_of(&member) {
 				Self::remove_member(&member, role)?;
