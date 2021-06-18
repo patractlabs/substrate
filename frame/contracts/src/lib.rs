@@ -346,13 +346,13 @@ pub mod pallet {
 			salt: Vec<u8>,
 		) -> DispatchResultWithPostInfo {
 			let origin = ensure_signed(origin)?;
-			let code_len = code.len() as u32;
-			ensure!(code_len <= T::Schedule::get().limits.code_len, Error::<T>::CodeTooLarge);
+			// let code_len = code.len() as u32;
+			// ensure!(code_len <= T::Schedule::get().limits.code_len, Error::<T>::CodeTooLarge);
 			let mut gas_meter = GasMeter::new(gas_limit);
 			let schedule = T::Schedule::get();
 			let executable = PrefabWasmModule::from_code(code, &schedule)?;
 			let code_len = executable.code_len();
-			ensure!(code_len <= T::Schedule::get().limits.code_len, Error::<T>::CodeTooLarge);
+			// ensure!(code_len <= T::Schedule::get().limits.code_len, Error::<T>::CodeTooLarge);
 
 			let (r, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
 				origin, executable, &mut gas_meter, &schedule, endowment, data, &salt, None,
