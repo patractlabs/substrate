@@ -1162,6 +1162,10 @@ impl ProposalProvider<AccountId, Hash, Call> for AllianceProposalProvider {
 	}
 }
 
+parameter_types! {
+	pub const MaxBlacklistCount: u32 = 100;
+}
+
 impl pallet_alliance::Config for Runtime {
 	type Event = Event;
 	type Proposal = Call;
@@ -1176,6 +1180,7 @@ impl pallet_alliance::Config for Runtime {
 	type Slashed = Treasury;
 	type IdentityVerifier = AllianceIdentityVerifier;
 	type ProposalProvider = AllianceProposalProvider;
+	type MaxBlacklistCount = MaxBlacklistCount;
 	type CandidateDeposit = CandidateDeposit;
 }
 
@@ -1601,6 +1606,7 @@ impl_runtime_apis! {
 			add_benchmark!(params, batches, pallet_treasury, Treasury);
 			add_benchmark!(params, batches, pallet_utility, Utility);
 			add_benchmark!(params, batches, pallet_vesting, Vesting);
+			add_benchmark!(params, batches, pallet_alliance, Alliance);
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)
