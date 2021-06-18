@@ -1594,14 +1594,14 @@ checksum = "68b91989ae21441195d7d9b9993a2f9295c7e1a8c96255d8b729accddc124797"
 
 [[package]]
 name = "ep-extensions"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "sp-externalities 0.9.0 (git+https://github.com/paritytech/substrate?branch=master)",
 ]
 
 [[package]]
 name = "ep-io"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "ep-extensions",
  "sp-externalities 0.9.0 (git+https://github.com/paritytech/substrate?branch=master)",
@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "ep-sandbox"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "parity-scale-codec",
  "serde",
