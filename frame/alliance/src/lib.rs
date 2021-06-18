@@ -17,11 +17,11 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+mod benchmarking;
 mod cid;
-#[cfg(test)]
-pub mod mock;
-#[cfg(test)]
+mod mock;
 mod tests;
+pub mod weights;
 
 use sp_runtime::{
 	traits::{Hash, StaticLookup, Zero},
@@ -34,12 +34,15 @@ use frame_support::{
 	dispatch::{DispatchError, DispatchResult, Dispatchable, GetDispatchInfo, PostDispatchInfo},
 	ensure,
 	traits::{
-		ChangeMembers, Currency, InitializeMembers, IsSubType, LockableCurrency, OnUnbalanced,
+		ChangeMembers, Currency, Get, InitializeMembers, IsSubType, LockableCurrency, OnUnbalanced,
 		ReservableCurrency,
 	},
 	weights::{Pays, Weight},
 };
+
+pub use cid::Cid;
 pub use pallet::*;
+pub use weights::*;
 
 /// Simple index type for proposal counting.
 pub type ProposalIndex = u32;
@@ -116,6 +119,13 @@ pub mod pallet {
 
 		type ProposalProvider: ProposalProvider<Self::AccountId, Self::Hash, Self::Proposal>;
 
+		/// The maximum number of blacklist supported by the pallet. Used for weight estimation.
+		///
+		/// NOTE:
+		/// + Benchmarks will need to be re-run and weights adjusted if this changes.
+		/// + This pallet assumes that dependents keep to the limit without enforcing it.
+		type MaxBlacklistCount: Get<u32>;
+
 		/// The minimum amount of a deposit required for submit candidacy.
 		#[pallet::constant]
 		type CandidateDeposit: Get<BalanceOf<Self, I>>;
@@ -145,7 +155,7 @@ pub mod pallet {
 	}
 
 	#[pallet::event]
-	#[pallet::generate_deposit(pub (super) fn deposit_event)]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	#[pallet::metadata(T::AccountId = "AccountId", T::Balance = "Balance")]
 	pub enum Event<T: Config<I>, I: 'static = ()> {
 		NewRule(cid::Cid),
@@ -627,7 +637,7 @@ pub mod pallet {
 
 impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	/// Check if a user is a candidate.
-	fn is_candidate(who: &T::AccountId) -> bool {
+	pub fn is_candidate(who: &T::AccountId) -> bool {
 		<Candidates<T, I>>::get().contains(who)
 	}
 
@@ -665,11 +675,11 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	}
 
 	/// Check if a user is a alliance member.
-	fn is_member(who: &T::AccountId) -> bool {
+	pub fn is_member(who: &T::AccountId) -> bool {
 		Self::member_role_of(who).is_some()
 	}
 
-	fn is_member_of(who: &T::AccountId, role: MemberRole) -> bool {
+	pub fn is_member_of(who: &T::AccountId, role: MemberRole) -> bool {
 		Members::<T, I>::get(role).contains(&who)
 	}
 
@@ -709,30 +719,30 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 
 	/// Add a user to the sorted alliance member set.
 	fn add_member(who: &T::AccountId, role: MemberRole) -> DispatchResult {
-		<Members<T, I>>::mutate(role, |members| -> DispatchResult {
-			let pos = members
-				.binary_search(&who)
-				.err()
-				.ok_or(Error::<T, I>::AlreadyMember)?;
-			members.insert(pos, who.clone());
-			Ok(())
-		})?;
+		let mut members = <Members<T, I>>::get(role);
+		let pos = members
+			.binary_search(who)
+			.err()
+			.ok_or(Error::<T, I>::AlreadyMember)?;
+		members.insert(pos, who.clone());
+		Members::<T, I>::insert(role, members);
 
-		let members = Self::votable_member_sorted();
-		T::MembershipChanged::change_members_sorted(&[who.clone()], &[], &members[..]);
+		if role == MemberRole::Founder || role == MemberRole::Fellow {
+			let members = Self::votable_member_sorted();
+			T::MembershipChanged::change_members_sorted(&[who.clone()], &[], &members[..]);
+		}
 		Ok(())
 	}
 
 	/// Remove a user from the alliance member set.
 	fn remove_member(who: &T::AccountId, role: MemberRole) -> DispatchResult {
-		<Members<T, I>>::mutate(role, |members| -> DispatchResult {
-			let pos = members
-				.binary_search(who)
-				.ok()
-				.ok_or(Error::<T, I>::NotMember)?;
-			members.remove(pos);
-			Ok(())
-		})?;
+		let mut members = <Members<T, I>>::get(role);
+		let pos = members
+			.binary_search(who)
+			.ok()
+			.ok_or(Error::<T, I>::NotMember)?;
+		members.remove(pos);
+		Members::<T, I>::insert(role, members);
 
 		if role == MemberRole::Founder || role == MemberRole::Fellow {
 			let members = Self::votable_member_sorted();
@@ -760,15 +770,17 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		new_webs: &mut Vec<Url>,
 	) -> DispatchResult {
 		if !new_accounts.is_empty() {
-			let mut users = <AccountBlacklist<T, I>>::get();
-			users.append(new_accounts);
-			users.sort();
-			AccountBlacklist::<T, I>::put(users);
+			let mut accounts = <AccountBlacklist<T, I>>::get();
+			accounts.append(new_accounts);
+			accounts.sort();
+			Self::maybe_warn_max_blacklist(&accounts);
+			AccountBlacklist::<T, I>::put(accounts);
 		}
 		if !new_webs.is_empty() {
 			let mut webs = <WebsiteBlacklist<T, I>>::get();
 			webs.append(new_webs);
 			webs.sort();
+			Self::maybe_warn_max_blacklist(&webs);
 			WebsiteBlacklist::<T, I>::put(webs);
 		}
 		Ok(())
@@ -788,6 +800,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 					.ok_or(Error::<T, I>::NotInBlacklist)?;
 				accounts.remove(pos);
 			}
+			Self::maybe_warn_max_blacklist(&accounts);
 			AccountBlacklist::<T, I>::put(accounts);
 		}
 		if !out_webs.is_empty() {
@@ -799,9 +812,21 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 					.ok_or(Error::<T, I>::NotInBlacklist)?;
 				webs.remove(pos);
 			}
+			Self::maybe_warn_max_blacklist(&webs);
 			WebsiteBlacklist::<T, I>::put(webs);
 		}
 		Ok(())
+	}
+
+	fn maybe_warn_max_blacklist<B>(blacklist: &[B]) {
+		if blacklist.len() as u32 > T::MaxBlacklistCount::get() {
+			log::error!(
+				target: "runtime::alliance",
+				"maximum number of blacklist used for weight is exceeded, weights can be underestimated [{} > {}].",
+				blacklist.len(),
+				T::MaxBlacklistCount::get(),
+			)
+		}
 	}
 
 	fn has_identity(who: &T::AccountId) -> DispatchResult {
