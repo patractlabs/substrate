@@ -1945,9 +1945,14 @@ define_env!(Env, <E: Ext>,
 		let mut protege = SealPrintln::default();
 		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
 
+		// We move this part outside the if closure part, may cause different behaviour to other pallet-contracts.
+		// But this `seal` is an unstable feature, thus we do not worry about it.
+		let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
+		log::info!(target: "runtime::contracts", "[Contracts]: {}", core::str::from_utf8(&data).unwrap_or("<Invalid UTF8>"));
+
 		ctx.charge_gas(RuntimeCosts::DebugMessage)?;
 		if ctx.ext.append_debug_buffer("") {
-			let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
+			// let data = ctx.read_sandbox_memory(str_ptr, str_len)?;
 			let msg = core::str::from_utf8(&data)
 				.map_err(|_| <Error<E::T>>::DebugMessageInvalidUTF8)?;
 			ctx.ext.append_debug_buffer(msg);
