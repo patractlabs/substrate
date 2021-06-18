@@ -1162,6 +1162,10 @@ impl ProposalProvider<AccountId, Hash, Call> for AllianceProposalProvider {
 	}
 }
 
+parameter_types! {
+	pub const MaxBlacklistCount: u32 = 100;
+}
+
 impl pallet_alliance::Config for Runtime {
 	type Event = Event;
 	type Proposal = Call;
@@ -1176,6 +1180,7 @@ impl pallet_alliance::Config for Runtime {
 	type Slashed = Treasury;
 	type IdentityVerifier = AllianceIdentityVerifier;
 	type ProposalProvider = AllianceProposalProvider;
+	type MaxBlacklistCount = MaxBlacklistCount;
 	type CandidateDeposit = CandidateDeposit;
 }
 

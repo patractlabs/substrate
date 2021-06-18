@@ -1,5 +1,25 @@
+// This file is part of Substrate.
+
+// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Test utilities
+
+#![cfg(test)]
+
 pub use cid::Cid;
-pub use multihash::U64;
 
 pub use sp_core::H256;
 pub use sp_runtime::{
@@ -11,36 +31,37 @@ pub use sp_runtime::{
 pub use frame_support::{ord_parameter_types, parameter_types, traits::SortedMembers};
 pub use frame_system::EnsureSignedBy;
 
+pub use crate as pallet_alliance;
+
 use super::*;
-use crate as pallet_alliance;
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
 }
 impl frame_system::Config for Test {
-	type AccountData = pallet_balances::AccountData<u64>;
-	type AccountId = u64;
 	type BaseCallFilter = ();
-	type BlockHashCount = BlockHashCount;
-	type BlockLength = ();
-	type BlockNumber = u64;
 	type BlockWeights = ();
+	type BlockLength = ();
+	type Origin = Origin;
 	type Call = Call;
-	type DbWeight = ();
-	type Event = Event;
+	type Index = u64;
+	type BlockNumber = u64;
 	type Hash = H256;
 	type Hashing = BlakeTwo256;
-	type Header = Header;
-	type Index = u64;
+	type AccountId = u64;
 	type Lookup = IdentityLookup<Self::AccountId>;
-	type OnKilledAccount = ();
-	type OnNewAccount = ();
-	type OnSetCode = ();
-	type Origin = Origin;
-	type PalletInfo = PalletInfo;
-	type SS58Prefix = ();
-	type SystemWeightInfo = ();
+	type Header = Header;
+	type Event = Event;
+	type BlockHashCount = BlockHashCount;
+	type DbWeight = ();
 	type Version = ();
+	type PalletInfo = PalletInfo;
+	type AccountData = pallet_balances::AccountData<u64>;
+	type OnNewAccount = ();
+	type OnKilledAccount = ();
+	type SystemWeightInfo = ();
+	type SS58Prefix = ();
+	type OnSetCode = ();
 }
 
 parameter_types! {
@@ -48,13 +69,13 @@ parameter_types! {
 	pub const MaxLocks: u32 = 10;
 }
 impl pallet_balances::Config for Test {
-	type AccountStore = System;
 	type Balance = u64;
 	type DustRemoval = ();
 	type Event = Event;
 	type ExistentialDeposit = ExistentialDeposit;
-	type MaxLocks = MaxLocks;
+	type AccountStore = System;
 	type WeightInfo = ();
+	type MaxLocks = MaxLocks;
 }
 
 parameter_types! {
@@ -64,13 +85,13 @@ parameter_types! {
 }
 type AllianceCollective = pallet_collective::Instance1;
 impl pallet_collective::Config<AllianceCollective> for Test {
-	type DefaultVote = pallet_collective::PrimeDefaultVote;
-	type Event = Event;
-	type MaxMembers = MaxMembers;
-	type MaxProposals = MaxProposals;
-	type MotionDuration = MotionDuration;
 	type Origin = Origin;
 	type Proposal = Call;
+	type Event = Event;
+	type MotionDuration = MotionDuration;
+	type MaxProposals = MaxProposals;
+	type MaxMembers = MaxMembers;
+	type DefaultVote = pallet_collective::PrimeDefaultVote;
 	type WeightInfo = ();
 }
 
@@ -131,6 +152,7 @@ impl ProposalProvider<u64, H256, Call> for AllianceProposalProvider {
 		AllianceMotion::proposal_of(proposal_hash)
 	}
 }
+
 ord_parameter_types! {
 	pub const One: u64 = 1;
 	pub const Two: u64 = 2;
@@ -140,18 +162,20 @@ ord_parameter_types! {
 }
 parameter_types! {
 	pub const CandidateDeposit: u64 = 25;
+	pub const MaxBlacklistCount: u32 = 100;
 }
 impl Config for Test {
-	type CandidateDeposit = CandidateDeposit;
-	type Currency = Balances;
 	type Event = Event;
-	type IdentityVerifier = AllianceIdentityVerifier;
-	type InitializeMembers = AllianceMotion;
-	type SuperMajorityOrigin = EnsureSignedBy<One, u64>;
-	type MembershipChanged = AllianceMotion;
 	type Proposal = Call;
-	type ProposalProvider = AllianceProposalProvider;
+	type SuperMajorityOrigin = EnsureSignedBy<One, u64>;
+	type Currency = Balances;
 	type Slashed = ();
+	type InitializeMembers = AllianceMotion;
+	type MembershipChanged = AllianceMotion;
+	type IdentityVerifier = AllianceIdentityVerifier;
+	type ProposalProvider = AllianceProposalProvider;
+	type MaxBlacklistCount = MaxBlacklistCount;
+	type CandidateDeposit = CandidateDeposit;
 }
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
@@ -171,7 +195,7 @@ frame_support::construct_runtime!(
 );
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	let mut ext: sp_io::TestExternalities = GenesisConfig {
+	let t = GenesisConfig {
 		pallet_balances: pallet_balances::GenesisConfig {
 			balances: vec![(1, 10), (2, 20), (3, 30), (4, 40), (5, 20)],
 		},
@@ -183,11 +207,23 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		},
 	}
 	.build_storage()
-	.unwrap()
-	.into();
+	.unwrap();
 
+	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| System::set_block_number(1));
 	ext
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+pub fn new_bench_ext() -> sp_io::TestExternalities {
+	GenesisConfig::default().build_storage().unwrap().into()
+}
+
+pub fn test_cid() -> Cid {
+	let cid = "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"
+		.parse()
+		.unwrap();
+	Cid::new(cid)
 }
 
 pub fn make_proposal(value: u64) -> Call {
@@ -200,11 +236,4 @@ pub fn make_set_rule_proposal(cid: Cid) -> Call {
 
 pub fn make_kick_member_proposal(who: u64) -> Call {
 	Call::Alliance(pallet_alliance::Call::kick_member(who))
-}
-
-pub fn mock_cid() -> Cid {
-	let cid = "QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n"
-		.parse()
-		.unwrap();
-	Cid::new(cid)
 }
