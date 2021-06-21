@@ -68,7 +68,7 @@ pub enum MemberRole {
 }
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug)]
-pub enum UserIdentity<AccountId> {
+pub enum BlacklistItem<AccountId> {
 	AccountId(AccountId),
 	Website(Url),
 }
@@ -165,10 +165,10 @@ pub mod pallet {
 		CandidateApproved(T::AccountId),
 		CandidateRejected(T::AccountId),
 		AllyElevated(T::AccountId),
-		MemberRetired(T::AccountId),
-		MemberKicked(T::AccountId),
-		BlacklistAdded(Vec<UserIdentity<T::AccountId>>),
-		BlacklistRemoved(Vec<UserIdentity<T::AccountId>>),
+		MemberRetired(T::AccountId, Option<BalanceOf<T, I>>),
+		MemberKicked(T::AccountId, Option<BalanceOf<T, I>>),
+		BlacklistAdded(Vec<BlacklistItem<T::AccountId>>),
+		BlacklistRemoved(Vec<BlacklistItem<T::AccountId>>),
 	}
 
 	#[pallet::genesis_config]
@@ -558,11 +558,12 @@ pub mod pallet {
 
 			if let Some(role) = Self::member_role_of(&who) {
 				Self::remove_member(&who, role)?;
-				if let Some(deposit) = DepositOf::<T, I>::take(&who) {
+				let deposit = DepositOf::<T, I>::take(&who);
+				if let Some(deposit) = deposit {
 					let err_amount = T::Currency::unreserve(&who, deposit);
 					debug_assert!(err_amount.is_zero());
 				}
-				Self::deposit_event(Event::MemberRetired(who));
+				Self::deposit_event(Event::MemberRetired(who, deposit));
 				Ok(().into())
 			} else {
 				Err(Error::<T, I>::NotMember.into())
@@ -581,10 +582,11 @@ pub mod pallet {
 
 			if let Some(role) = Self::member_role_of(&member) {
 				Self::remove_member(&member, role)?;
-				if let Some(deposit) = DepositOf::<T, I>::take(member.clone()) {
+				let deposit = DepositOf::<T, I>::take(member.clone());
+				if let Some(deposit) = deposit {
 					T::Slashed::on_unbalanced(T::Currency::slash_reserved(&member, deposit).0);
 				}
-				Self::deposit_event(Event::MemberKicked(member));
+				Self::deposit_event(Event::MemberKicked(member, deposit));
 				Ok(().into())
 			} else {
 				Err(Error::<T, I>::NotMember.into())
@@ -595,7 +597,7 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub fn add_blacklist(
 			origin: OriginFor<T>,
-			infos: Vec<UserIdentity<T::AccountId>>,
+			infos: Vec<BlacklistItem<T::AccountId>>,
 		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let mut accounts = vec![];
@@ -603,8 +605,8 @@ pub mod pallet {
 			for info in infos.iter() {
 				ensure!(!Self::is_blacklist(info), Error::<T, I>::AlreadyInBlacklist);
 				match info {
-					UserIdentity::AccountId(who) => accounts.push(who.clone()),
-					UserIdentity::Website(url) => webs.push(url.clone()),
+					BlacklistItem::AccountId(who) => accounts.push(who.clone()),
+					BlacklistItem::Website(url) => webs.push(url.clone()),
 				}
 			}
 			Self::do_add_blacklist(&mut accounts, &mut webs)?;
@@ -616,7 +618,7 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub fn remove_blacklist(
 			origin: OriginFor<T>,
-			infos: Vec<UserIdentity<T::AccountId>>,
+			infos: Vec<BlacklistItem<T::AccountId>>,
 		) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
 			let mut accounts = vec![];
@@ -624,8 +626,8 @@ pub mod pallet {
 			for info in infos.iter() {
 				ensure!(Self::is_blacklist(info), Error::<T, I>::NotInBlacklist);
 				match info {
-					UserIdentity::AccountId(who) => accounts.push(who.clone()),
-					UserIdentity::Website(url) => webs.push(url.clone()),
+					BlacklistItem::AccountId(who) => accounts.push(who.clone()),
+					BlacklistItem::Website(url) => webs.push(url.clone()),
 				}
 			}
 			Self::do_remove_blacklist(&mut accounts, &mut webs)?;
@@ -752,10 +754,10 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	}
 
 	/// Check if a user is in blacklist.
-	fn is_blacklist(info: &UserIdentity<T::AccountId>) -> bool {
+	fn is_blacklist(info: &BlacklistItem<T::AccountId>) -> bool {
 		match info {
-			UserIdentity::Website(url) => <WebsiteBlacklist<T, I>>::get().contains(url),
-			UserIdentity::AccountId(who) => <AccountBlacklist<T, I>>::get().contains(who),
+			BlacklistItem::Website(url) => <WebsiteBlacklist<T, I>>::get().contains(url),
+			BlacklistItem::AccountId(who) => <AccountBlacklist<T, I>>::get().contains(who),
 		}
 	}
 

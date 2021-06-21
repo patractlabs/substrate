@@ -262,7 +262,7 @@ benchmarks_instance_pallet! {
 		assert!(!Alliance::<T, I>::is_member(&fellow2));
 		assert_eq!(T::Currency::reserved_balance(&fellow2), BalanceOf::<T, I>::zero());
 		assert_eq!(DepositOf::<T, I>::get(&fellow2), None);
-		assert_last_event::<T, I>(Event::MemberRetired(fellow2).into());
+		assert_last_event::<T, I>(Event::MemberRetired(fellow2, Some(T::CandidateDeposit::get())).into());
 	}
 
 	kick_member {
@@ -283,14 +283,14 @@ benchmarks_instance_pallet! {
 		assert!(!Alliance::<T, I>::is_member(&fellow2));
 		assert_eq!(T::Currency::reserved_balance(&fellow2), BalanceOf::<T, I>::zero());
 		assert_eq!(DepositOf::<T, I>::get(&fellow2), None);
-		assert_last_event::<T, I>(Event::MemberKicked(fellow2).into());
+		assert_last_event::<T, I>(Event::MemberKicked(fellow2, Some(T::CandidateDeposit::get())).into());
 	}
 
 	add_blacklist {
 		let n in 0 .. T::MaxBlacklistCount::get();
 
-		let mut blacklist = (0..n).map(|i| UserIdentity::AccountId(blacklist_account::<T, I>(i))).collect::<Vec<_>>();
-		blacklist.extend((0..n).map(|i| UserIdentity::Website(vec![i as u8])));
+		let mut blacklist = (0..n).map(|i| BlacklistItem::AccountId(blacklist_account::<T, I>(i))).collect::<Vec<_>>();
+		blacklist.extend((0..n).map(|i| BlacklistItem::Website(vec![i as u8])));
 
 		set_members::<T, I>();
 
@@ -304,8 +304,8 @@ benchmarks_instance_pallet! {
 	remove_blacklist {
 		let n in 0 .. T::MaxBlacklistCount::get();
 
-		let mut blacklist = (0..n).map(|i| UserIdentity::AccountId(blacklist_account::<T, I>(i))).collect::<Vec<_>>();
-		blacklist.extend((0..n).map(|i| UserIdentity::Website(vec![i as u8])));
+		let mut blacklist = (0..n).map(|i| BlacklistItem::AccountId(blacklist_account::<T, I>(i))).collect::<Vec<_>>();
+		blacklist.extend((0..n).map(|i| BlacklistItem::Website(vec![i as u8])));
 
 		set_members::<T, I>();
 		set_blacklist::<T, I>();
