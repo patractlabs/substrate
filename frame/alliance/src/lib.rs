@@ -60,6 +60,7 @@ const IDENTITY_FIELD_DISPLAY: u64 =
 	0b0000000000000000000000000000000000000000000000000000000000000001;
 const IDENTITY_FIELD_WEB: u64 = 0b0000000000000000000000000000000000000000000000000000000000000100;
 
+/// The role of members.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug)]
 pub enum MemberRole {
 	Founder,
@@ -67,6 +68,7 @@ pub enum MemberRole {
 	Ally,
 }
 
+/// The item type of blacklist.
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug)]
 pub enum BlacklistItem<AccountId> {
 	AccountId(AccountId),
@@ -115,8 +117,10 @@ pub mod pallet {
 		/// The receiver of the signal for when the members have changed.
 		type MembershipChanged: ChangeMembers<Self::AccountId>;
 
+		/// The identity verifier of alliance member.
 		type IdentityVerifier: IdentityVerifier<Self::AccountId>;
 
+		/// The provider of the proposal operation.
 		type ProposalProvider: ProposalProvider<Self::AccountId, Self::Hash, Self::Proposal>;
 
 		/// The maximum number of blacklist supported by the pallet. Used for weight estimation.
@@ -126,31 +130,50 @@ pub mod pallet {
 		/// + This pallet assumes that dependents keep to the limit without enforcing it.
 		type MaxBlacklistCount: Get<u32>;
 
-		/// The minimum amount of a deposit required for submit candidacy.
+		/// The amount of a deposit required for submitting candidacy.
 		#[pallet::constant]
 		type CandidateDeposit: Get<BalanceOf<Self, I>>;
 	}
 
 	#[pallet::error]
 	pub enum Error<T, I = ()> {
+		/// The founders have already been initialized.
 		FoundersAlreadyInitialized,
+		/// Already be a candidate.
 		AlreadyCandidate,
+		/// Not be a candidate.
 		NotCandidate,
+		/// Already be a member.
 		AlreadyMember,
+		/// Not be a member.
 		NotMember,
+		/// Not be an ally member.
 		NotAlly,
+		/// Not be a founder member.
 		NotFounder,
+		/// Not be a kicking member.
 		NotKickingMember,
+		/// Not be a votable (founder or fellow) member.
 		NotVotableMember,
+		/// Already be an elevated (fellow) member.
 		AlreadyElevated,
+		/// Already be a blacklist item.
 		AlreadyInBlacklist,
+		/// Not be a blacklist item.
 		NotInBlacklist,
+		/// The member is kicking.
 		KickingMember,
+		/// Balance is insufficient to be a candidate.
 		InsufficientCandidateFunds,
+		/// The account's identity has not been judged.
 		NoJudgedIdentity,
+		/// The account's identity has not display field.
 		NoDisplayName,
+		/// The account' identity has not website field.
 		NoWebsite,
+		/// The proposal hash is not found.
 		MissingProposalHash,
+		/// The proposal is not vetoable.
 		NotVetoableProposal,
 	}
 
@@ -158,16 +181,27 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	#[pallet::metadata(T::AccountId = "AccountId", T::Balance = "Balance")]
 	pub enum Event<T: Config<I>, I: 'static = ()> {
+		/// A new rule was set. \[rule\]
 		NewRule(cid::Cid),
+		/// Made an announcement. \[announcement\]
 		NewAnnouncement(cid::Cid),
+		/// Initialized founders. \[founders\]
 		FoundersInitialized(Vec<T::AccountId>),
+		/// Added a candidate. \[candidate, nominator, reserved\]
 		CandidateAdded(T::AccountId, Option<T::AccountId>, Option<BalanceOf<T, I>>),
+		/// Approved a candidate. \[candidate\]
 		CandidateApproved(T::AccountId),
+		/// Rejected a candidate. \[candidate\]
 		CandidateRejected(T::AccountId),
+		/// Elevated a ally member to be a fellow member. \[ally\]
 		AllyElevated(T::AccountId),
+		/// A member retired. \[member, unreserved\]
 		MemberRetired(T::AccountId, Option<BalanceOf<T, I>>),
+		/// A member was kicked. \[member, slashed\]
 		MemberKicked(T::AccountId, Option<BalanceOf<T, I>>),
+		/// Added blacklist items. \[items\]
 		BlacklistAdded(Vec<BlacklistItem<T::AccountId>>),
+		/// Removed blacklist items. \[items\]
 		BlacklistRemoved(Vec<BlacklistItem<T::AccountId>>),
 	}
 
@@ -230,7 +264,7 @@ pub mod pallet {
 		}
 	}
 
-	/// A ipfs cid of the rules of this alliance concerning membership.
+	/// A IPFS cid of the rules of this alliance concerning membership.
 	/// Any member can propose rules, other members make a traditional majority-wins
 	/// vote to determine if the rules take effect.
 	/// The founder has a special one-vote veto right to the rules setting.
@@ -238,7 +272,7 @@ pub mod pallet {
 	#[pallet::getter(fn rule)]
 	pub type Rule<T: Config<I>, I: 'static = ()> = StorageValue<_, cid::Cid, OptionQuery>;
 
-	/// Maps proposal hash and identity info.
+	/// The announcements (a set of IPFS cid) about dispute between members and other issues.
 	#[pallet::storage]
 	#[pallet::getter(fn announcements)]
 	pub type Announcements<T: Config<I>, I: 'static = ()> =
@@ -270,12 +304,13 @@ pub mod pallet {
 	pub type KickingMembers<T: Config<I>, I: 'static = ()> =
 		StorageMap<_, Blake2_128Concat, T::AccountId, bool, ValueQuery>;
 
-	/// Maps proposal hash and identity info.
+	/// The account blacklist.
 	#[pallet::storage]
 	#[pallet::getter(fn account_blacklist)]
 	pub type AccountBlacklist<T: Config<I>, I: 'static = ()> =
 		StorageValue<_, Vec<T::AccountId>, ValueQuery>;
 
+	/// The website blacklist.
 	#[pallet::storage]
 	#[pallet::getter(fn website_blacklist)]
 	pub type WebsiteBlacklist<T: Config<I>, I: 'static = ()> =
@@ -308,6 +343,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
+		/// Vote (approve/disapprove) for an alliance proposal.
 		#[pallet::weight(0)]
 		pub fn vote(
 			origin: OriginFor<T>,
@@ -344,6 +380,7 @@ pub mod pallet {
 			}
 		}
 
+		/// Close an an alliance proposal.
 		#[pallet::weight(0)]
 		pub fn close(
 			origin: OriginFor<T>,
@@ -378,7 +415,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Initialize the founders to the given members.
+		/// Initialize the founders with the given members.
 		#[pallet::weight(0)]
 		pub fn init_founders(
 			origin: OriginFor<T>,
@@ -408,7 +445,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// A IPFS cid of the rules of this alliance concerning membership.
+		/// Set the rule (A IPFS cid) of this alliance concerning membership.
 		#[pallet::weight(0)]
 		pub fn set_rule(origin: OriginFor<T>, rule: cid::Cid) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
@@ -419,7 +456,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Announcement IPFS Hash about dispute between two allies and other issues.
+		/// Make an announcement about dispute between members and other issues.
 		/// Proposer should publish in polkassembly.io first and talked with others,
 		/// then publish the post into IPFS. Create a ID.
 		#[pallet::weight(0)]
@@ -512,7 +549,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Reject a `Candidate` to be a `Outsider`.
+		/// Reject a `Candidate` to be a `Ally` and slash the reserved deposit.
 		/// Only the members (`Fellows` and `Founders`) can vote to approve/reject the `Candidate`.
 		#[pallet::weight(0)]
 		pub fn reject_candidate(
@@ -556,7 +593,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// As a member, back to outsider and unlock deposit.
+		/// As a member, back to outsider and unreserve the deposit.
 		#[pallet::weight(0)]
 		pub fn retire(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
@@ -599,7 +636,7 @@ pub mod pallet {
 			}
 		}
 
-		/// Add websites or addresses into blacklist.
+		/// Add websites or accounts into the blacklist.
 		#[pallet::weight(0)]
 		pub fn add_blacklist(
 			origin: OriginFor<T>,
@@ -620,7 +657,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Remove websites or addresses form blacklist.
+		/// Remove websites or accounts from the blacklist.
 		#[pallet::weight(0)]
 		pub fn remove_blacklist(
 			origin: OriginFor<T>,
