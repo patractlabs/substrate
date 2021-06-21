@@ -230,7 +230,7 @@ fn submit_candidacy_works() {
 		// check already in blacklist
 		assert_ok!(Alliance::add_blacklist(
 			Origin::signed(1),
-			vec![UserIdentity::AccountId(4)]
+			vec![BlacklistItem::AccountId(4)]
 		));
 		assert_noop!(
 			Alliance::submit_candidacy(Origin::signed(4)),
@@ -238,7 +238,7 @@ fn submit_candidacy_works() {
 		);
 		assert_ok!(Alliance::remove_blacklist(
 			Origin::signed(1),
-			vec![UserIdentity::AccountId(4)]
+			vec![BlacklistItem::AccountId(4)]
 		));
 
 		// check deposit funds
@@ -278,7 +278,7 @@ fn nominate_candidacy_works() {
 		// check already in blacklist
 		assert_ok!(Alliance::add_blacklist(
 			Origin::signed(1),
-			vec![UserIdentity::AccountId(4)]
+			vec![BlacklistItem::AccountId(4)]
 		));
 		assert_noop!(
 			Alliance::nominate_candidacy(Origin::signed(1), 4),
@@ -286,7 +286,7 @@ fn nominate_candidacy_works() {
 		);
 		assert_ok!(Alliance::remove_blacklist(
 			Origin::signed(1),
-			vec![UserIdentity::AccountId(4)]
+			vec![BlacklistItem::AccountId(4)]
 		));
 
 		// success to nominate
@@ -407,8 +407,8 @@ fn add_blacklist_works() {
 		assert_ok!(Alliance::add_blacklist(
 			Origin::signed(1),
 			vec![
-				UserIdentity::AccountId(3),
-				UserIdentity::Website("abc".as_bytes().to_vec())
+				BlacklistItem::AccountId(3),
+				BlacklistItem::Website("abc".as_bytes().to_vec())
 			]
 		));
 		assert_eq!(Alliance::account_blacklist(), vec![3]);
@@ -418,7 +418,7 @@ fn add_blacklist_works() {
 		);
 
 		assert_noop!(
-			Alliance::add_blacklist(Origin::signed(1), vec![UserIdentity::AccountId(3)]),
+			Alliance::add_blacklist(Origin::signed(1), vec![BlacklistItem::AccountId(3)]),
 			Error::<Test, ()>::AlreadyInBlacklist
 		);
 	});
@@ -428,18 +428,18 @@ fn add_blacklist_works() {
 fn remove_blacklist_works() {
 	new_test_ext().execute_with(|| {
 		assert_noop!(
-			Alliance::remove_blacklist(Origin::signed(1), vec![UserIdentity::AccountId(3)]),
+			Alliance::remove_blacklist(Origin::signed(1), vec![BlacklistItem::AccountId(3)]),
 			Error::<Test, ()>::NotInBlacklist
 		);
 
 		assert_ok!(Alliance::add_blacklist(
 			Origin::signed(1),
-			vec![UserIdentity::AccountId(3)]
+			vec![BlacklistItem::AccountId(3)]
 		));
 		assert_eq!(Alliance::account_blacklist(), vec![3]);
 		assert_ok!(Alliance::remove_blacklist(
 			Origin::signed(1),
-			vec![UserIdentity::AccountId(3)]
+			vec![BlacklistItem::AccountId(3)]
 		));
 		assert_eq!(Alliance::account_blacklist(), Vec::<u64>::new());
 	});
