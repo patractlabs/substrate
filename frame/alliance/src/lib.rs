@@ -398,6 +398,12 @@ pub mod pallet {
 			T::InitializeMembers::initialize_members(&founders);
 			Members::<T, I>::insert(&MemberRole::Founder, founders.clone());
 
+			log::debug!(
+				target: "runtime::alliance",
+				"Initialize alliance founders: {:?}",
+				founders,
+			);
+
 			Self::deposit_event(Event::FoundersInitialized(founders));
 			Ok(().into())
 		}
