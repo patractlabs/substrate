@@ -181,27 +181,27 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	#[pallet::metadata(T::AccountId = "AccountId", T::Balance = "Balance")]
 	pub enum Event<T: Config<I>, I: 'static = ()> {
-		/// A new rule was set. \[rule\]
+		/// A new rule has been set. \[rule\]
 		NewRule(cid::Cid),
-		/// Made an announcement. \[announcement\]
+		/// A new announcement has been proposed. \[announcement\]
 		NewAnnouncement(cid::Cid),
-		/// Initialized founders. \[founders\]
+		/// Some accounts have been initialized to founders. \[founders\]
 		FoundersInitialized(Vec<T::AccountId>),
-		/// Added a candidate. \[candidate, nominator, reserved\]
+		/// An account has been added as a candidate and lock its deposit. \[candidate, nominator, reserved\]
 		CandidateAdded(T::AccountId, Option<T::AccountId>, Option<BalanceOf<T, I>>),
-		/// Approved a candidate. \[candidate\]
+		/// A proposal has been proposed to approve the candidate. \[candidate\]
 		CandidateApproved(T::AccountId),
-		/// Rejected a candidate. \[candidate\]
+		/// A proposal has been proposed to reject the candidate. \[candidate\]
 		CandidateRejected(T::AccountId),
-		/// Elevated a ally member to be a fellow member. \[ally\]
+		/// As an active member, an ally has been elevated to fellow. \[ally\]
 		AllyElevated(T::AccountId),
-		/// A member retired. \[member, unreserved\]
+		/// A member has retired to an ordinary account with its deposit unreserved. \[member, unreserved\]
 		MemberRetired(T::AccountId, Option<BalanceOf<T, I>>),
-		/// A member was kicked. \[member, slashed\]
+		/// A member has been kicked out to an ordinary account with its deposit slashed. \[member, slashed\]
 		MemberKicked(T::AccountId, Option<BalanceOf<T, I>>),
-		/// Added blacklist items. \[items\]
+		/// Accounts or websites have been added into blacklist. \[items\]
 		BlacklistAdded(Vec<BlacklistItem<T::AccountId>>),
-		/// Removed blacklist items. \[items\]
+		/// Accounts or websites have been removed from blacklist. \[items\]
 		BlacklistRemoved(Vec<BlacklistItem<T::AccountId>>),
 	}
 
@@ -264,53 +264,55 @@ pub mod pallet {
 		}
 	}
 
-	/// A IPFS cid of the rules of this alliance concerning membership.
-	/// Any member can propose rules, other members make a traditional majority-wins
-	/// vote to determine if the rules take effect.
-	/// The founder has a special one-vote veto right to the rules setting.
+	/// The IPFS cid of the alliance rule.
+	/// Founders and fellows can propose a new rule, other founders and fellows make a traditional
+	/// super-majority votes, vote to determine if the rules take effect.
+	///
+	/// Any founder has a special one-vote veto right to the rule setting.
 	#[pallet::storage]
 	#[pallet::getter(fn rule)]
 	pub type Rule<T: Config<I>, I: 'static = ()> = StorageValue<_, cid::Cid, OptionQuery>;
 
-	/// The announcements (a set of IPFS cid) about dispute between members and other issues.
+	/// The current IPFS cids of the announcements.
 	#[pallet::storage]
 	#[pallet::getter(fn announcements)]
 	pub type Announcements<T: Config<I>, I: 'static = ()> =
 		StorageValue<_, Vec<cid::Cid>, ValueQuery>;
 
-	/// The member who have locked a candidate deposit.
+	/// Maps member and their candidate deposit.
 	#[pallet::storage]
 	#[pallet::getter(fn deposit_of)]
 	pub type DepositOf<T: Config<I>, I: 'static = ()> =
 		StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T, I>, OptionQuery>;
 
-	/// The current set of candidates; outsiders who are attempting to become members.
+	/// The current set of candidates.
+	/// If the candidacy is approved by a motion, then it will become an ally member.
 	#[pallet::storage]
 	#[pallet::getter(fn candidates)]
 	pub type Candidates<T: Config<I>, I: 'static = ()> =
 		StorageValue<_, Vec<T::AccountId>, ValueQuery>;
 
-	/// The current set of alliance members(founder/fellow/ally).
-	///
-	/// Note: ally can’t proposal or vote on motions, only for show.
+	/// Maps member type to alliance members, including founder, fellow and ally.
+	/// Founders and fellows can propose and vote on alliance motions,
+	/// and ally can only wait to be elevated to fellow.
 	#[pallet::storage]
 	#[pallet::getter(fn members)]
 	pub type Members<T: Config<I>, I: 'static = ()> =
 		StorageMap<_, Twox64Concat, MemberRole, Vec<T::AccountId>, ValueQuery>;
 
-	/// The set of kicking members.
+	/// The members are being kicked out. They can't retire during the motion.
 	#[pallet::storage]
 	#[pallet::getter(fn kicking_member)]
 	pub type KickingMembers<T: Config<I>, I: 'static = ()> =
 		StorageMap<_, Blake2_128Concat, T::AccountId, bool, ValueQuery>;
 
-	/// The account blacklist.
+	/// The current blacklist of accounts. The accounts can't submit candidacy.
 	#[pallet::storage]
 	#[pallet::getter(fn account_blacklist)]
 	pub type AccountBlacklist<T: Config<I>, I: 'static = ()> =
 		StorageValue<_, Vec<T::AccountId>, ValueQuery>;
 
-	/// The website blacklist.
+	/// The current blacklist of websites.
 	#[pallet::storage]
 	#[pallet::getter(fn website_blacklist)]
 	pub type WebsiteBlacklist<T: Config<I>, I: 'static = ()> =
@@ -320,7 +322,7 @@ pub mod pallet {
 	impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		/// Add a new proposal to be voted on.
 		///
-		/// Requires the sender to be elevated member(founders/fellows).
+		/// Requires the sender to be founder or fellow.
 		#[pallet::weight(0)]
 		pub fn propose(
 			origin: OriginFor<T>,
@@ -343,7 +345,9 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Vote (approve/disapprove) for an alliance proposal.
+		/// Add an aye or nay vote for the sender to the given proposal.
+		///
+		/// Requires the sender to be founder or fellow.
 		#[pallet::weight(0)]
 		pub fn vote(
 			origin: OriginFor<T>,
@@ -361,9 +365,10 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Disapprove a proposal, close, and remove it from the system, regardless of its current state.
+		/// Disapprove a proposal about set_rule and elevate_ally, close, and remove it from
+		/// the system, regardless of its current state.
 		///
-		/// Must be called by the founders.
+		/// Must be called by a founder.
 		#[pallet::weight(0)]
 		pub fn veto(origin: OriginFor<T>, proposal_hash: T::Hash) -> DispatchResultWithPostInfo {
 			let proposor = ensure_signed(origin)?;
@@ -380,7 +385,9 @@ pub mod pallet {
 			}
 		}
 
-		/// Close an an alliance proposal.
+		/// Close a vote that is either approved, disapproved or whose voting period has ended.
+		///
+		/// Requires the sender to be founder or fellow.
 		#[pallet::weight(0)]
 		pub fn close(
 			origin: OriginFor<T>,
@@ -415,7 +422,9 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Initialize the founders with the given members.
+		/// IInitialize the founders to the given members.
+		///
+		/// This should be called by the referendum and can only be called once.
 		#[pallet::weight(0)]
 		pub fn init_founders(
 			origin: OriginFor<T>,
@@ -445,7 +454,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Set the rule (A IPFS cid) of this alliance concerning membership.
+		/// Set a new IPFS cid to the alliance rule.
 		#[pallet::weight(0)]
 		pub fn set_rule(origin: OriginFor<T>, rule: cid::Cid) -> DispatchResultWithPostInfo {
 			T::SuperMajorityOrigin::ensure_origin(origin)?;
@@ -456,9 +465,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Make an announcement about dispute between members and other issues.
-		/// Proposer should publish in polkassembly.io first and talked with others,
-		/// then publish the post into IPFS. Create a ID.
+		/// Make a new announcement by a new IPFS cid about the alliance issues.
 		#[pallet::weight(0)]
 		pub fn announce(
 			origin: OriginFor<T>,
@@ -475,7 +482,6 @@ pub mod pallet {
 		}
 
 		/// Submit oneself for candidacy.
-		///
 		/// Account must have enough transferable funds in it to pay the candidate deposit.
 		#[pallet::weight(0)]
 		pub fn submit_candidacy(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
@@ -500,11 +506,8 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// As a elevated member, nominate for someone to join alliance.
-		///
-		/// There is no deposit required to the nominees.
-		///
-		/// The dispatch origin for this call must be _Signed_ and a elevated member.
+		/// Founder or fellow can nominate someone to join the alliance and become a candidate.
+		/// There is no deposit required to the nominator or nominee.
 		#[pallet::weight(0)]
 		pub fn nominate_candidacy(
 			origin: OriginFor<T>,
@@ -531,7 +534,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Approve a `Candidate` to be a `Ally`.
+		/// Approve a `Candidate` to become an `Ally`.
 		#[pallet::weight(0)]
 		pub fn approve_candidate(
 			origin: OriginFor<T>,
@@ -549,8 +552,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Reject a `Candidate` to be a `Ally` and slash the reserved deposit.
-		/// Only the members (`Fellows` and `Founders`) can vote to approve/reject the `Candidate`.
+		/// Reject a `Candidate` back to an ordinary account.
 		#[pallet::weight(0)]
 		pub fn reject_candidate(
 			origin: OriginFor<T>,
@@ -570,9 +572,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// As a active member, elevate a ally to fellow.
-		///
-		/// The dispatch origin for this call must be _Signed_ and a member.
+		/// Elevate an ally to fellow.
 		#[pallet::weight(0)]
 		pub fn elevate_ally(
 			origin: OriginFor<T>,
@@ -593,7 +593,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// As a member, back to outsider and unreserve the deposit.
+		/// As a member, retire and back to an ordinary account and unlock its deposit.
 		#[pallet::weight(0)]
 		pub fn retire(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
 			let who = ensure_signed(origin)?;
@@ -613,7 +613,7 @@ pub mod pallet {
 			}
 		}
 
-		/// Kick a member to outsider with its deposit slashed.
+		/// Kick a member to ordinary account with its deposit slashed.
 		#[pallet::weight(0)]
 		pub fn kick_member(
 			origin: OriginFor<T>,
@@ -636,7 +636,7 @@ pub mod pallet {
 			}
 		}
 
-		/// Add websites or accounts into the blacklist.
+		/// Add accounts or websites into blacklist.
 		#[pallet::weight(0)]
 		pub fn add_blacklist(
 			origin: OriginFor<T>,
@@ -657,7 +657,7 @@ pub mod pallet {
 			Ok(().into())
 		}
 
-		/// Remove websites or accounts from the blacklist.
+		/// Remove accounts or websites from blacklist.
 		#[pallet::weight(0)]
 		pub fn remove_blacklist(
 			origin: OriginFor<T>,
