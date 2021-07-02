@@ -166,11 +166,11 @@ pub mod pallet {
 		/// Balance is insufficient to be a candidate.
 		InsufficientCandidateFunds,
 		/// The account's identity has not been judged.
-		NoJudgedIdentity,
+		WithoutVerifiedIdentity,
 		/// The account's identity has not display field.
-		NoDisplayName,
+		WithoutIdentityDisplay,
 		/// The account' identity has not website field.
-		NoWebsite,
+		WithoutIdentityWebsite,
 		/// The proposal hash is not found.
 		MissingProposalHash,
 		/// The proposal is not vetoable.
@@ -877,16 +877,16 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	fn has_identity(who: &T::AccountId) -> DispatchResult {
 		let judgement = |w: &T::AccountId| -> DispatchResult {
 			ensure!(
-				T::IdentityVerifier::verify_identity(w, IDENTITY_FIELD_WEB),
-				Error::<T, I>::NoWebsite
-			);
-			ensure!(
 				T::IdentityVerifier::verify_identity(w, IDENTITY_FIELD_DISPLAY),
-				Error::<T, I>::NoDisplayName
+				Error::<T, I>::WithoutIdentityDisplay
 			);
 			ensure!(
 				T::IdentityVerifier::verify_judgement(w),
-				Error::<T, I>::NoJudgedIdentity
+				Error::<T, I>::WithoutVerifiedIdentity
+			);
+			ensure!(
+				T::IdentityVerifier::verify_identity(w, IDENTITY_FIELD_WEB),
+				Error::<T, I>::WithoutIdentityWebsite
 			);
 			Ok(())
 		};
