@@ -124,8 +124,9 @@ use sp_runtime::{
 	Perbill,
 };
 use frame_support::{
-	traits::{OnUnbalanced, Currency, Get, Time, Randomness},
-	weights::{Weight, PostDispatchInfo, WithPostDispatchInfo},
+	traits::{OnUnbalanced, Currency, Get, Time, Randomness, Filter},
+	weights::{Weight, PostDispatchInfo, WithPostDispatchInfo, GetDispatchInfo},
+	dispatch::Dispatchable,
 };
 use frame_system::Pallet as System;
 use pallet_contracts_primitives::{
@@ -159,6 +160,41 @@ pub mod pallet {
 
 		/// The overarching event type.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+
+		/// The overarching call type.
+		type Call:
+			Dispatchable<Origin=Self::Origin, PostInfo=PostDispatchInfo> +
+			GetDispatchInfo +
+			codec::Decode +
+			IsType<<Self as frame_system::Config>::Call>;
+
+		/// Filter that is applied to calls dispatched by contracts.
+		///
+		/// Use this filter to control which dispatchables are callable by contracts.
+		/// This is applied in **addition** to [`frame_system::Config::BaseCallFilter`].
+		/// It is recommended to treat this as a whitelist.
+		///
+		/// # Subsistence Threshold
+		///
+		/// The runtime **must** make sure that any allowed dispatchable makes sure that the
+		/// `total_balance` of the contract stays above [`Pallet::subsistence_threshold()`].
+		/// Otherwise contracts can clutter the storage with their tombstones without
+		/// deposting the correct amount of balance.
+		///
+		/// # Stability
+		///
+		/// The runtime **must** make sure that all dispatchables that are callable by
+		/// contracts remain stable. In addition [`Self::Call`] itself must remain stable.
+		/// This means that no existing variants are allowed to switch their positions.
+		///
+		/// # Note
+		///
+		/// Note that dispatchables that are called via contracts do not spawn their
+		/// own wasm instance for each call (as opposed to when called via a transaction).
+		/// Therefore please make sure to be restrictive about which dispatchables are allowed
+		/// in order to not introduce a new DoS vector like memory allocation patterns that can
+		/// be exploited to drive the runtime into a panic.
+		type CallFilter: Filter<<Self as frame_system::Config>::Call>;
 
 		/// Handler for rent payments.
 		type RentPayment: OnUnbalanced<NegativeImbalanceOf<Self>>;
@@ -282,9 +318,7 @@ pub mod pallet {
 		/// * If the account is a regular account, any value will be transferred.
 		/// * If no account exists and the call value is not less than `existential_deposit`,
 		/// a regular account will be created and any value will be transferred.
-		#[pallet::weight(T::WeightInfo::call(T::Schedule::get().limits.code_len / 1024)
-			.saturating_add(*gas_limit)
-		)]
+		#[pallet::weight(T::WeightInfo::call().saturating_add(*gas_limit))]
 		pub fn call(
 			origin: OriginFor<T>,
 			dest: <T::Lookup as StaticLookup>::Source,
@@ -296,17 +330,11 @@ pub mod pallet {
 			let dest = T::Lookup::lookup(dest)?;
 			let mut gas_meter = GasMeter::new(gas_limit);
 			let schedule = T::Schedule::get();
-
-			let (r, trace) =  ExecStack::<T, PrefabWasmModule<T>>::run_call(
+			let (result, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_call(
 				origin, dest, &mut gas_meter, &schedule, value, data, None,
 			);
 			Self::log_tracing(trace);
-
-			let (result, code_len) = match r {
-				Ok((output, len)) => (Ok(output), len),
-				Err((err, len)) => (Err(err), len),
-			};
-			gas_meter.into_dispatch_result(result, T::WeightInfo::call(code_len / 1024))
+			gas_meter.into_dispatch_result(result, T::WeightInfo::call())
 		}
 
 		/// Instantiates a new contract from the supplied `code` optionally transferring
@@ -372,10 +400,7 @@ pub mod pallet {
 		/// code deployment step. Instead, the `code_hash` of an on-chain deployed wasm binary
 		/// must be supplied.
 		#[pallet::weight(
-			T::WeightInfo::instantiate(
-				T::Schedule::get().limits.code_len / 1024, salt.len() as u32 / 1024
-			)
-			.saturating_add(*gas_limit)
+			T::WeightInfo::instantiate(salt.len() as u32 / 1024).saturating_add(*gas_limit)
 		)]
 		pub fn instantiate(
 			origin: OriginFor<T>,
@@ -389,7 +414,6 @@ pub mod pallet {
 			let mut gas_meter = GasMeter::new(gas_limit);
 			let schedule = T::Schedule::get();
 			let executable = PrefabWasmModule::from_storage(code_hash, &schedule, &mut gas_meter)?;
-			let code_len = executable.code_len();
 			let (result, trace) = ExecStack::<T, PrefabWasmModule<T>>::run_instantiate(
 				origin, executable, &mut gas_meter, &schedule, endowment, data, &salt, None,
 			);
@@ -398,7 +422,7 @@ pub mod pallet {
 			let result = result.map(|(_address, output)| output);
 			gas_meter.into_dispatch_result(
 				result,
-				T::WeightInfo::instantiate(code_len / 1024, salt.len() as u32 / 1024),
+				T::WeightInfo::instantiate(salt.len() as u32 / 1024),
 			)
 		}
 
@@ -699,8 +723,9 @@ where
 			origin, dest, &mut gas_meter, &schedule, value, input_data, debug_message.as_mut(),
 		);
 		let r = ContractExecResult {
-			result: result.map(|r| r.0).map_err(|r| r.0.error),
-			gas_consumed: gas_meter.gas_spent(),
+			result: result.map_err(|r| r.error),
+			gas_consumed: gas_meter.gas_consumed(),
+			gas_required: gas_meter.gas_required(),
 			debug_message: debug_message.unwrap_or_default(),
 		};
 		(r, trace)
@@ -742,7 +767,8 @@ where
 			Ok(executable) => executable,
 			Err(error) => return (ContractInstantiateResult {
 				result: Err(error.into()),
-				gas_consumed: gas_meter.gas_spent(),
+				gas_consumed: gas_meter.gas_consumed(),
+				gas_required: gas_meter.gas_required(),
 				debug_message: Vec::new(),
 			}, NestedRuntime::<T>::none())
 		};
@@ -771,7 +797,8 @@ where
 		});
 		let r = ContractInstantiateResult {
 			result: result.map_err(|e| e.error),
-			gas_consumed: gas_meter.gas_spent(),
+			gas_consumed: gas_meter.gas_consumed(),
+			gas_required: gas_meter.gas_required(),
 			debug_message: debug_message.unwrap_or_default(),
 		};
 		(r, trace)
