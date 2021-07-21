@@ -746,11 +746,22 @@ where
 		salt_len: u32
 	) -> Result<ReturnCode, TrapReason>
 	{
+		let mut protege = SealInstantiate::<E::T>::new(gas);
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
+
 		self.charge_gas(RuntimeCosts::InstantiateBase {input_data_len, salt_len})?;
 		let code_hash: CodeHash<<E as Ext>::T> = self.read_sandbox_memory_as(code_hash_ptr)?;
+		protege.set_code_hash(Some(code_hash.encode().into()));
+
 		let value: BalanceOf<<E as Ext>::T> = self.read_sandbox_memory_as(value_ptr)?;
+		protege.set_value(Some(value));
+
 		let input_data = self.read_sandbox_memory(input_data_ptr, input_data_len)?;
+		protege.set_input(Some(input_data.clone().into()));
+
 		let salt = self.read_sandbox_memory(salt_ptr, salt_len)?;
+		protege.set_salt(Some(salt.clone().into()));
+
 		let instantiate_outcome = self.ext.instantiate(gas, code_hash, value, input_data, &salt);
 		if let Ok((address, output)) = &instantiate_outcome {
 			if !output.flags.contains(ReturnFlags::REVERT) {
@@ -761,14 +772,25 @@ where
 			self.write_sandbox_output(output_ptr, output_len_ptr, &output.data, true, |len| {
 				Some(RuntimeCosts::InstantiateCopyOut(len))
 			})?;
+			protege.set_output(Some(output.data.clone().into()));
+			protege.set_address(Some(address.clone()));
 		}
-		Ok(Runtime::<E>::exec_into_return_code(instantiate_outcome.map(|(_, retval)| retval))?)
+		let return_code = Runtime::<E>::exec_into_return_code(instantiate_outcome.map(|(_, retval)| retval))?;
+		protege.set_result(Some(return_code));
+
+		Ok(return_code)
 	}
 
 	fn terminate(&mut self, beneficiary_ptr: u32) -> Result<(), TrapReason> {
+		let mut protege = SealTerminate::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
+
 		self.charge_gas(RuntimeCosts::Terminate)?;
 		let beneficiary: <<E as Ext>::T as frame_system::Config>::AccountId =
 			self.read_sandbox_memory_as(beneficiary_ptr)?;
+
+		protege.set_beneficiary(Some(beneficiary.clone()));
+
 		self.ext.terminate(&beneficiary)?;
 		Err(TrapReason::Termination)
 	}
@@ -781,13 +803,22 @@ where
 		delta_ptr: u32,
 		delta_count: u32
 	) -> Result<(), TrapReason> {
+		let mut protege = SealRestoreTo::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
+
 		self.charge_gas(RuntimeCosts::RestoreTo(delta_count))?;
 		let dest: <<E as Ext>::T as frame_system::Config>::AccountId =
 			self.read_sandbox_memory_as(dest_ptr)?;
+		protege.set_dest(Some(dest.clone()));
+
 		let code_hash: CodeHash<<E as Ext>::T> =
 			self.read_sandbox_memory_as(code_hash_ptr)?;
+		protege.set_code_hash(Some(code_hash.as_ref().into()));
+
 		let rent_allowance: BalanceOf<<E as Ext>::T> =
 			self.read_sandbox_memory_as(rent_allowance_ptr)?;
+		protege.set_rent_allowance(Some(rent_allowance));
+
 		let delta = {
 			const KEY_SIZE: usize = 32;
 
@@ -813,6 +844,8 @@ where
 
 			delta
 		};
+		protege.set_delta(Some(delta.iter().map(|d| d.to_vec().into()).collect()));
+
 		self.ext.restore_to(dest, code_hash, rent_allowance, delta)?;
 		Err(TrapReason::Restoration)
 	}
@@ -1715,8 +1748,13 @@ define_env!(Env, <E: Ext>,
 	// this type is fixed through `[`MaxEncodedLen`]. The field exist for backwards
 	// compatibility. Consider switching to the newest version of this function.
 	[seal0] seal_set_rent_allowance(ctx, value_ptr: u32, _value_len: u32) => {
+		let mut protege = SealSetRentAllowance::<E::T>::default();
+		let _guard = EnvTraceGuard::<E::T, _>::new(&protege);
+
 		ctx.charge_gas(RuntimeCosts::SetRentAllowance)?;
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr)?;
+		protege.set_value(Some(value));
+
 		ctx.ext.set_rent_allowance(value);
 		Ok(())
 	},
@@ -1731,7 +1769,7 @@ define_env!(Env, <E: Ext>,
 
 		ctx.charge_gas(RuntimeCosts::SetRentAllowance)?;
 		let value: BalanceOf<<E as Ext>::T> = ctx.read_sandbox_memory_as(value_ptr)?;
-		protege.set_value(Some(value.saturated_into()));
+		protege.set_value(Some(value));
 
 		ctx.ext.set_rent_allowance(value);
 		Ok(())
