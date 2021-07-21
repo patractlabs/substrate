@@ -741,9 +741,9 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	}
 
 	fn votable_member_count() -> u32 {
-		let founders = Members::<T, I>::get(MemberRole::Founder);
-		let fellows = Members::<T, I>::get(MemberRole::Fellow);
-		(founders.len() + fellows.len()) as u32
+		let founder_count = Members::<T, I>::decode_len(MemberRole::Founder).unwrap_or_default();
+		let fellow_count = Members::<T, I>::decode_len(MemberRole::Fellow).unwrap_or_default();
+		(founder_count + fellow_count) as u32
 	}
 
 	fn votable_member_sorted() -> Vec<T::AccountId> {
