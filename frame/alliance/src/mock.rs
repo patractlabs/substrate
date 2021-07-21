@@ -76,6 +76,8 @@ impl pallet_balances::Config for Test {
 	type AccountStore = System;
 	type WeightInfo = ();
 	type MaxLocks = MaxLocks;
+	type MaxReserves = ();
+	type ReserveIdentifier = [u8; 8];
 }
 
 parameter_types! {
@@ -196,10 +198,10 @@ frame_support::construct_runtime!(
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let t = GenesisConfig {
-		pallet_balances: pallet_balances::GenesisConfig {
+		balances: pallet_balances::GenesisConfig {
 			balances: vec![(1, 10), (2, 20), (3, 30), (4, 40), (5, 20)],
 		},
-		pallet_alliance: pallet_alliance::GenesisConfig {
+		alliance: pallet_alliance::GenesisConfig {
 			founders: vec![1, 2],
 			fellows: vec![3],
 			allies: vec![],

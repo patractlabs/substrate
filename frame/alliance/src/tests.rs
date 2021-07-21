@@ -25,6 +25,8 @@ use frame_system::{EventRecord, Phase};
 use super::*;
 use crate::mock::*;
 
+type AllianceMotionEvent = pallet_collective::Event<Test, pallet_collective::Instance1>;
+
 #[test]
 fn propose_works() {
 	new_test_ext().execute_with(|| {
@@ -47,9 +49,7 @@ fn propose_works() {
 			System::events(),
 			vec![EventRecord {
 				phase: Phase::Initialization,
-				event: mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Proposed(1, 0, hash, 3)
-				),
+				event: mock::Event::AllianceMotion(AllianceMotionEvent::Proposed(1, 0, hash, 3)),
 				topics: vec![],
 			}]
 		);
@@ -75,12 +75,19 @@ fn vote_works() {
 		assert_eq!(
 			System::events(),
 			vec![
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Proposed(1, 0, hash.clone(), 3)
-				)),
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Voted(2, hash.clone(), true, 2, 0)
-				)),
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Proposed(
+					1,
+					0,
+					hash.clone(),
+					3
+				))),
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Voted(
+					2,
+					hash.clone(),
+					true,
+					2,
+					0
+				))),
 			]
 		);
 	});
@@ -124,15 +131,21 @@ fn veto_works() {
 		assert_eq!(
 			System::events(),
 			vec![
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Proposed(1, 0, hash.clone(), 3)
-				)),
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Proposed(1, 1, vetoable_hash.clone(), 3)
-				)),
-				// record(mock::Event::pallet_collective_Instance1(pallet_collective::RawEvent::Voted(2, hash.clone(), true, 2, 0))),
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Disapproved(vetoable_hash.clone())
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Proposed(
+					1,
+					0,
+					hash.clone(),
+					3
+				))),
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Proposed(
+					1,
+					1,
+					vetoable_hash.clone(),
+					3
+				))),
+				// record(mock::Event::AllianceMotion(AllianceMotionEvent::Voted(2, hash.clone(), true, 2, 0))),
+				record(mock::Event::AllianceMotion(
+					AllianceMotionEvent::Disapproved(vetoable_hash.clone())
 				)),
 			]
 		);
@@ -168,27 +181,38 @@ fn close_works() {
 		assert_eq!(
 			System::events(),
 			vec![
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Proposed(1, 0, hash.clone(), 3)
-				)),
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Voted(2, hash.clone(), true, 2, 0)
-				)),
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Voted(3, hash.clone(), true, 3, 0)
-				)),
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Closed(hash.clone(), 3, 0)
-				)),
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Approved(hash.clone())
-				)),
-				record(mock::Event::pallet_collective_Instance1(
-					pallet_collective::RawEvent::Executed(
-						hash.clone(),
-						Err(DispatchError::BadOrigin)
-					)
-				))
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Proposed(
+					1,
+					0,
+					hash.clone(),
+					3
+				))),
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Voted(
+					2,
+					hash.clone(),
+					true,
+					2,
+					0
+				))),
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Voted(
+					3,
+					hash.clone(),
+					true,
+					3,
+					0
+				))),
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Closed(
+					hash.clone(),
+					3,
+					0
+				))),
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Approved(
+					hash.clone()
+				))),
+				record(mock::Event::AllianceMotion(AllianceMotionEvent::Executed(
+					hash.clone(),
+					Err(DispatchError::BadOrigin)
+				)))
 			]
 		);
 	});
@@ -201,7 +225,7 @@ fn set_rule_works() {
 		assert_ok!(Alliance::set_rule(Origin::signed(1), cid));
 		assert_eq!(Alliance::rule(), Some(cid));
 
-		System::assert_last_event(mock::Event::pallet_alliance(crate::Event::NewRule(cid)));
+		System::assert_last_event(mock::Event::Alliance(crate::Event::NewRule(cid)));
 	});
 }
 
@@ -212,9 +236,7 @@ fn announce_works() {
 		assert_ok!(Alliance::announce(Origin::signed(1), cid));
 		assert_eq!(Alliance::announcements(), vec![cid]);
 
-		System::assert_last_event(mock::Event::pallet_alliance(crate::Event::NewAnnouncement(
-			cid,
-		)));
+		System::assert_last_event(mock::Event::Alliance(crate::Event::NewAnnouncement(cid)));
 	});
 }
 

@@ -500,7 +500,8 @@ pub mod pallet {
 				.map_err(|_| Error::<T, I>::InsufficientCandidateFunds)?;
 			<DepositOf<T, I>>::insert(&who, deposit);
 
-			Self::add_candidate(&who)?;
+			let res = Self::add_candidate(&who);
+			debug_assert!(res.is_ok());
 
 			Self::deposit_event(Event::CandidateAdded(who, None, Some(deposit)));
 			Ok(().into())
@@ -528,7 +529,8 @@ pub mod pallet {
 			// check user self or parent should has verified identity to reuse display name and website.
 			Self::has_identity(&who)?;
 
-			Self::add_candidate(&who)?;
+			let res = Self::add_candidate(&who);
+			debug_assert!(res.is_ok());
 
 			Self::deposit_event(Event::CandidateAdded(who, Some(nominator), None));
 			Ok(().into())
@@ -599,18 +601,15 @@ pub mod pallet {
 			let who = ensure_signed(origin)?;
 			ensure!(!Self::is_kicking(&who), Error::<T, I>::KickingMember);
 
-			if let Some(role) = Self::member_role_of(&who) {
-				Self::remove_member(&who, role)?;
-				let deposit = DepositOf::<T, I>::take(&who);
-				if let Some(deposit) = deposit {
-					let err_amount = T::Currency::unreserve(&who, deposit);
-					debug_assert!(err_amount.is_zero());
-				}
-				Self::deposit_event(Event::MemberRetired(who, deposit));
-				Ok(().into())
-			} else {
-				Err(Error::<T, I>::NotMember.into())
+			let role = Self::member_role_of(&who).ok_or(Error::<T, I>::NotMember)?;
+			Self::remove_member(&who, role)?;
+			let deposit = DepositOf::<T, I>::take(&who);
+			if let Some(deposit) = deposit {
+				let err_amount = T::Currency::unreserve(&who, deposit);
+				debug_assert!(err_amount.is_zero());
 			}
+			Self::deposit_event(Event::MemberRetired(who, deposit));
+			Ok(().into())
 		}
 
 		/// Kick a member to ordinary account with its deposit slashed.
@@ -623,17 +622,14 @@ pub mod pallet {
 			let member = T::Lookup::lookup(who)?;
 			ensure!(Self::is_kicking(&member), Error::<T, I>::NotKickingMember);
 
-			if let Some(role) = Self::member_role_of(&member) {
-				Self::remove_member(&member, role)?;
-				let deposit = DepositOf::<T, I>::take(member.clone());
-				if let Some(deposit) = deposit {
-					T::Slashed::on_unbalanced(T::Currency::slash_reserved(&member, deposit).0);
-				}
-				Self::deposit_event(Event::MemberKicked(member, deposit));
-				Ok(().into())
-			} else {
-				Err(Error::<T, I>::NotMember.into())
+			let role = Self::member_role_of(&member).ok_or(Error::<T, I>::NotMember)?;
+			Self::remove_member(&member, role)?;
+			let deposit = DepositOf::<T, I>::take(member.clone());
+			if let Some(deposit) = deposit {
+				T::Slashed::on_unbalanced(T::Currency::slash_reserved(&member, deposit).0);
 			}
+			Self::deposit_event(Event::MemberKicked(member, deposit));
+			Ok(().into())
 		}
 
 		/// Add accounts or websites into blacklist.
