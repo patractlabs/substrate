@@ -1,3 +1,26 @@
+// This file is part of Substrate.
+
+// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//  http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use codec::{Decode, Encode, EncodeLike, Error, Input, Output};
+use rust_cid::Cid as SourceCid;
+
+use sp_runtime::RuntimeDebug;
+use sp_std::{ops::Deref, vec};
+
 /// A wrapped Cid for source Cid struct, to implement a valid encode/decode for Cid.
 ///
 /// This file will be used until this pr is merged:
@@ -24,13 +47,6 @@
 /// read it from buffer **directly**, and do not add other byte like hint size or else.
 /// The `code` and `size` is encoded/decoded in normal way.
 ///
-use codec::{Decode, Encode, EncodeLike, Error, Input, Output};
-use rust_cid::Cid as SourceCid;
-
-use sp_runtime::RuntimeDebug;
-use sp_std::{ops::Deref, vec};
-
-// SourceCid has implemeted the Copy for static length.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, RuntimeDebug)]
 pub struct Cid(SourceCid);
 
