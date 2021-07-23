@@ -29,12 +29,13 @@ use frame_support::{
 	weights::{
 		Weight, IdentityFee,
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
-		DispatchClass,
+		DispatchClass, Pays,
 	},
 	traits::{
 		Currency, Imbalance, KeyOwnerProofSystem, OnUnbalanced, LockIdentifier,
 		U128CurrencyToVote, MaxEncodedLen,
 	},
+	dispatch::DispatchError,
 };
 use frame_system::{
 	EnsureRoot, EnsureOneOf,
@@ -73,6 +74,7 @@ use pallet_session::{historical as pallet_session_historical};
 use sp_inherents::{InherentData, CheckInherentsResult};
 use static_assertions::const_assert;
 use pallet_contracts::weights::WeightInfo;
+use pallet_alliance::{IdentityVerifier, ProposalProvider, ProposalIndex};
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -1132,6 +1134,99 @@ impl pallet_transaction_storage::Config for Runtime {
 	type WeightInfo = pallet_transaction_storage::weights::SubstrateWeight<Runtime>;
 }
 
+parameter_types! {
+	pub const AllianceMotionDuration: BlockNumber = 5 * DAYS;
+	pub const AllianceMaxProposals: u32 = 100;
+	pub const AllianceMaxMembers: u32 = 100;
+}
+
+type AllianceCollective = pallet_collective::Instance3;
+impl pallet_collective::Config<AllianceCollective> for Runtime {
+	type Origin = Origin;
+	type Proposal = Call;
+	type Event = Event;
+	type MotionDuration = AllianceMotionDuration;
+	type MaxProposals = AllianceMaxProposals;
+	type MaxMembers = AllianceMaxMembers;
+	type DefaultVote = pallet_collective::PrimeDefaultVote;
+	type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
+}
+
+pub struct AllianceIdentityVerifier;
+impl IdentityVerifier<AccountId> for AllianceIdentityVerifier {
+	fn super_account_id(who: &AccountId) -> Option<AccountId> {
+		Identity::super_account_id(who)
+	}
+
+	fn verify_identity(who: &AccountId, field: u64) -> bool {
+		Identity::verify_identity(who, field)
+	}
+
+	fn verify_judgement(who: &AccountId) -> bool {
+		Identity::verify_judgement(who)
+	}
+}
+
+pub struct AllianceProposalProvider;
+impl ProposalProvider<AccountId, Hash, Call> for AllianceProposalProvider {
+	fn propose_proposal(
+		who: AccountId,
+		threshold: u32,
+		proposal: Call,
+		proposal_hash: Hash,
+	) -> Result<u32, DispatchError> {
+		AllianceMotion::do_propose(who, threshold, proposal, proposal_hash)
+	}
+
+	fn vote_proposal(
+		who: AccountId,
+		proposal: Hash,
+		index: ProposalIndex,
+		approve: bool,
+	) -> Result<bool, DispatchError> {
+		AllianceMotion::do_vote(who, proposal, index, approve)
+	}
+
+	fn veto_proposal(proposal_hash: Hash) -> u32 {
+		AllianceMotion::do_disapprove_proposal(proposal_hash)
+	}
+
+	fn close_proposal(
+		proposal_hash: Hash,
+		proposal_index: ProposalIndex,
+		proposal_weight_bound: Weight,
+		length_bound: u32,
+	) -> Result<(Weight, Pays), DispatchError> {
+		AllianceMotion::do_close(proposal_hash, proposal_index, proposal_weight_bound, length_bound)
+	}
+
+	fn proposal_of(proposal_hash: Hash) -> Option<Call> {
+		AllianceMotion::proposal_of(proposal_hash)
+	}
+}
+
+parameter_types! {
+	pub const MaxBlacklistCount: u32 = 100;
+}
+
+impl pallet_alliance::Config for Runtime {
+	type Event = Event;
+	type Proposal = Call;
+	type SuperMajorityOrigin = EnsureOneOf<
+		AccountId,
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureProportionMoreThan<_2, _3, AccountId, AllianceCollective>,
+	>;
+	type Currency = Balances;
+	type InitializeMembers = AllianceMotion;
+	type MembershipChanged = AllianceMotion;
+	type Slashed = Treasury;
+	type IdentityVerifier = AllianceIdentityVerifier;
+	type ProposalProvider = AllianceProposalProvider;
+	type MaxBlacklistCount = MaxBlacklistCount;
+	type CandidateDeposit = CandidateDeposit;
+}
+
 construct_runtime!(
 	pub enum Runtime where
 		Block = Block,
@@ -1178,6 +1273,8 @@ construct_runtime!(
 		Gilt: pallet_gilt::{Pallet, Call, Storage, Event<T>, Config},
 		Uniques: pallet_uniques::{Pallet, Call, Storage, Event<T>},
 		TransactionStorage: pallet_transaction_storage::{Pallet, Call, Storage, Inherent, Config<T>, Event<T>},
+		AllianceMotion: pallet_collective::<Instance3>::{Pallet, Storage, Origin<T>, Event<T>},
+		Alliance: pallet_alliance::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
@@ -1556,6 +1653,7 @@ impl_runtime_apis! {
 			add_benchmark!(params, batches, pallet_uniques, Uniques);
 			add_benchmark!(params, batches, pallet_utility, Utility);
 			add_benchmark!(params, batches, pallet_vesting, Vesting);
+			add_benchmark!(params, batches, pallet_alliance, Alliance);
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)

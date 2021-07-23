@@ -12,7 +12,6 @@ repository = "https://github.com/paritytech/substrate/"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-
 # third-party dependencies
 codec = { package = "parity-scale-codec", version = "2.0.0", default-features = false, features = ["derive"] }
 static_assertions = "1.1.0"
@@ -89,6 +88,7 @@ pallet-transaction-payment-rpc-runtime-api = { version = "3.0.0", default-featur
 pallet-transaction-storage = { version = "3.0.0", default-features = false, path = "../../../frame/transaction-storage" }
 pallet-uniques = { version = "3.0.0", default-features = false, path = "../../../frame/uniques" }
 pallet-vesting = { version = "3.0.0", default-features = false, path = "../../../frame/vesting" }
+pallet-alliance = { version = "3.0.0", default-features = false, path = "../../../frame/alliance" }
 
 max-encoded-len = { version = "3.0.0", default-features = false, path = "../../../max-encoded-len", features = [ "derive" ] }
 
@@ -167,6 +167,7 @@ std = [
 	"frame-try-runtime/std",
 	"sp-npos-elections/std",
 	"max-encoded-len/std",
+	"pallet-alliance/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking",
@@ -202,6 +203,7 @@ runtime-benchmarks = [
 	"pallet-utility/runtime-benchmarks",
 	"pallet-uniques/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
+	"pallet-alliance/runtime-benchmarks",
 	"pallet-offences-benchmarking",
 	"pallet-session-benchmarking",
 	"frame-system-benchmarking",
@@ -247,6 +249,7 @@ try-runtime = [
 	"pallet-uniques/try-runtime",
 	"pallet-vesting/try-runtime",
 	"pallet-gilt/try-runtime",
+	"pallet-alliance/try-runtime",
 ]
 # Make contract callable functions marked as __unstable__ available. Do not enable
 # on live chains as those are subject to change.

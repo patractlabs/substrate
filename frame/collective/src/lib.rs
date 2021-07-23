@@ -452,9 +452,10 @@ decl_module! {
 			let proposal_len = proposal.using_encoded(|x| x.len());
 			ensure!(proposal_len <= length_bound as usize, Error::<T, I>::WrongProposalLength);
 			let proposal_hash = T::Hashing::hash_of(&proposal);
-			ensure!(!<ProposalOf<T, I>>::contains_key(proposal_hash), Error::<T, I>::DuplicateProposal);
 
 			if threshold < 2 {
+				ensure!(!<ProposalOf<T, I>>::contains_key(proposal_hash), Error::<T, I>::DuplicateProposal);
+
 				let seats = Self::members().len() as MemberCount;
 				let result = proposal.dispatch(RawOrigin::Members(1, seats).into());
 				Self::deposit_event(
@@ -468,24 +469,12 @@ decl_module! {
 					).saturating_add(w) // P1
 				}).into())
 			} else {
-				let active_proposals =
-					<Proposals<T, I>>::try_mutate(|proposals| -> Result<usize, DispatchError> {
-						proposals.try_push(proposal_hash).map_err(|_| Error::<T, I>::TooManyProposals)?;
-						Ok(proposals.len())
-					})?;
-				let index = Self::proposal_count();
-				<ProposalCount<I>>::mutate(|i| *i += 1);
-				<ProposalOf<T, I>>::insert(proposal_hash, *proposal);
-				let end = system::Pallet::<T>::block_number() + T::MotionDuration::get();
-				let votes = Votes { index, threshold, ayes: vec![who.clone()], nays: vec![], end };
-				<Voting<T, I>>::insert(proposal_hash, votes);
-
-				Self::deposit_event(RawEvent::Proposed(who, index, proposal_hash, threshold));
+				let active_proposals = Self::do_propose(who, threshold, *proposal, proposal_hash)?;
 
 				Ok(Some(T::WeightInfo::propose_proposed(
 					proposal_len as u32, // B
 					members.len() as u32, // M
-					active_proposals as u32, // P2
+					active_proposals, // P2
 				)).into())
 			}
 		}
@@ -517,41 +506,7 @@ decl_module! {
 			let members = Self::members();
 			ensure!(members.contains(&who), Error::<T, I>::NotMember);
 
-			let mut voting = Self::voting(&proposal).ok_or(Error::<T, I>::ProposalMissing)?;
-			ensure!(voting.index == index, Error::<T, I>::WrongIndex);
-
-			let position_yes = voting.ayes.iter().position(|a| a == &who);
-			let position_no = voting.nays.iter().position(|a| a == &who);
-
-			// Detects first vote of the member in the motion
-			let is_account_voting_first_time = position_yes.is_none() && position_no.is_none();
-
-			if approve {
-				if position_yes.is_none() {
-					voting.ayes.push(who.clone());
-				} else {
-					Err(Error::<T, I>::DuplicateVote)?
-				}
-				if let Some(pos) = position_no {
-					voting.nays.swap_remove(pos);
-				}
-			} else {
-				if position_no.is_none() {
-					voting.nays.push(who.clone());
-				} else {
-					Err(Error::<T, I>::DuplicateVote)?
-				}
-				if let Some(pos) = position_yes {
-					voting.ayes.swap_remove(pos);
-				}
-			}
-
-			let yes_votes = voting.ayes.len() as MemberCount;
-			let no_votes = voting.nays.len() as MemberCount;
-			Self::deposit_event(RawEvent::Voted(who, proposal, approve, yes_votes, no_votes));
-
-			Voting::<T, I>::insert(&proposal, voting);
-
+			let is_account_voting_first_time = Self::do_vote(who, proposal, index, approve)?;
 			if is_account_voting_first_time {
 				Ok((
 					Some(T::WeightInfo::vote(members.len() as u32)),
@@ -617,76 +572,8 @@ decl_module! {
 		) -> DispatchResultWithPostInfo {
 			let _ = ensure_signed(origin)?;
 
-			let voting = Self::voting(&proposal_hash).ok_or(Error::<T, I>::ProposalMissing)?;
-			ensure!(voting.index == index, Error::<T, I>::WrongIndex);
-
-			let mut no_votes = voting.nays.len() as MemberCount;
-			let mut yes_votes = voting.ayes.len() as MemberCount;
-			let seats = Self::members().len() as MemberCount;
-			let approved = yes_votes >= voting.threshold;
-			let disapproved = seats.saturating_sub(no_votes) < voting.threshold;
-			// Allow (dis-)approving the proposal as soon as there are enough votes.
-			if approved {
-				let (proposal, len) = Self::validate_and_get_proposal(
-					&proposal_hash,
-					length_bound,
-					proposal_weight_bound,
-				)?;
-				Self::deposit_event(RawEvent::Closed(proposal_hash, yes_votes, no_votes));
-				let (proposal_weight, proposal_count) =
-					Self::do_approve_proposal(seats, voting, proposal_hash, proposal);
-				return Ok((
-					Some(T::WeightInfo::close_early_approved(len as u32, seats, proposal_count)
-					.saturating_add(proposal_weight)),
-					Pays::Yes,
-				).into());
-
-			} else if disapproved {
-				Self::deposit_event(RawEvent::Closed(proposal_hash, yes_votes, no_votes));
-				let proposal_count = Self::do_disapprove_proposal(proposal_hash);
-				return Ok((
-					Some(T::WeightInfo::close_early_disapproved(seats, proposal_count)),
-					Pays::No,
-				).into());
-			}
-
-			// Only allow actual closing of the proposal after the voting period has ended.
-			ensure!(system::Pallet::<T>::block_number() >= voting.end, Error::<T, I>::TooEarly);
-
-			let prime_vote = Self::prime().map(|who| voting.ayes.iter().any(|a| a == &who));
-
-			// default voting strategy.
-			let default = T::DefaultVote::default_vote(prime_vote, yes_votes, no_votes, seats);
-
-			let abstentions = seats - (yes_votes + no_votes);
-			match default {
-				true => yes_votes += abstentions,
-				false => no_votes += abstentions,
-			}
-			let approved = yes_votes >= voting.threshold;
-
-			if approved {
-				let (proposal, len) = Self::validate_and_get_proposal(
-					&proposal_hash,
-					length_bound,
-					proposal_weight_bound,
-				)?;
-				Self::deposit_event(RawEvent::Closed(proposal_hash, yes_votes, no_votes));
-				let (proposal_weight, proposal_count) =
-					Self::do_approve_proposal(seats, voting, proposal_hash, proposal);
-				return Ok((
-					Some(T::WeightInfo::close_approved(len as u32, seats, proposal_count)
-					.saturating_add(proposal_weight)),
-					Pays::Yes,
-				).into());
-			} else {
-				Self::deposit_event(RawEvent::Closed(proposal_hash, yes_votes, no_votes));
-				let proposal_count = Self::do_disapprove_proposal(proposal_hash);
-				return Ok((
-					Some(T::WeightInfo::close_disapproved(seats, proposal_count)),
-					Pays::No,
-				).into());
-			}
+			let (weight, pays) =  Self::do_close(proposal_hash, index, proposal_weight_bound, length_bound)?;
+			Ok((Some(weight), pays).into())
 		}
 
 		/// Disapprove a proposal, close, and remove it from the system, regardless of its current state.
@@ -717,6 +604,139 @@ impl<T: Config<I>, I: Instance> Module<T, I> {
 		// Note: The dispatchables *do not* use this to check membership so make sure
 		// to update those if this is changed.
 		Self::members().contains(who)
+	}
+
+	pub fn do_propose(
+		who: T::AccountId, threshold: MemberCount,
+		proposal: <T as Config<I>>::Proposal,
+		proposal_hash: T::Hash
+	) -> Result<u32, DispatchError> {
+		ensure!(!<ProposalOf<T, I>>::contains_key(proposal_hash), Error::<T, I>::DuplicateProposal);
+
+		let active_proposals =
+			<Proposals<T, I>>::try_mutate(|proposals| -> Result<usize, DispatchError> {
+				proposals.try_push(proposal_hash).map_err(|_| Error::<T, I>::TooManyProposals)?;
+				Ok(proposals.len())
+			})?;
+		let index = Self::proposal_count();
+		<ProposalCount<I>>::mutate(|i| *i += 1);
+		<ProposalOf<T, I>>::insert(proposal_hash, proposal);
+		let end = system::Pallet::<T>::block_number() + T::MotionDuration::get();
+		let votes = Votes { index, threshold, ayes: vec![who.clone()], nays: vec![], end };
+		<Voting<T, I>>::insert(proposal_hash, votes);
+
+		Self::deposit_event(RawEvent::Proposed(who, index, proposal_hash, threshold));
+
+		Ok(active_proposals as u32)
+	}
+
+	pub fn do_vote(
+		who: T::AccountId,
+		proposal: T::Hash,
+		index: ProposalIndex,
+		approve: bool,
+	) -> Result<bool, DispatchError> {
+		let mut voting = Self::voting(&proposal).ok_or(Error::<T, I>::ProposalMissing)?;
+		ensure!(voting.index == index, Error::<T, I>::WrongIndex);
+
+		let position_yes = voting.ayes.iter().position(|a| a == &who);
+		let position_no = voting.nays.iter().position(|a| a == &who);
+
+		// Detects first vote of the member in the motion
+		let is_account_voting_first_time = position_yes.is_none() && position_no.is_none();
+
+		if approve {
+			if position_yes.is_none() {
+				voting.ayes.push(who.clone());
+			} else {
+				Err(Error::<T, I>::DuplicateVote)?
+			}
+			if let Some(pos) = position_no {
+				voting.nays.swap_remove(pos);
+			}
+		} else {
+			if position_no.is_none() {
+				voting.nays.push(who.clone());
+			} else {
+				Err(Error::<T, I>::DuplicateVote)?
+			}
+			if let Some(pos) = position_yes {
+				voting.ayes.swap_remove(pos);
+			}
+		}
+
+		let yes_votes = voting.ayes.len() as MemberCount;
+		let no_votes = voting.nays.len() as MemberCount;
+		Self::deposit_event(RawEvent::Voted(who, proposal, approve, yes_votes, no_votes));
+
+		Voting::<T, I>::insert(&proposal, voting);
+
+		Ok(is_account_voting_first_time)
+	}
+
+	pub fn do_close(
+		proposal_hash: T::Hash,
+		index: ProposalIndex,
+		proposal_weight_bound: Weight,
+		length_bound: u32
+	) -> Result<(Weight, Pays), DispatchError> {
+		let voting = Self::voting(&proposal_hash).ok_or(Error::<T, I>::ProposalMissing)?;
+		ensure!(voting.index == index, Error::<T, I>::WrongIndex);
+
+		let mut no_votes = voting.nays.len() as MemberCount;
+		let mut yes_votes = voting.ayes.len() as MemberCount;
+		let seats = Self::members().len() as MemberCount;
+		let approved = yes_votes >= voting.threshold;
+		let disapproved = seats.saturating_sub(no_votes) < voting.threshold;
+		// Allow (dis-)approving the proposal as soon as there are enough votes.
+		if approved {
+			let (proposal, len) = Self::validate_and_get_proposal(
+				&proposal_hash,
+				length_bound,
+				proposal_weight_bound,
+			)?;
+			Self::deposit_event(RawEvent::Closed(proposal_hash, yes_votes, no_votes));
+			let (proposal_weight, proposal_count) =
+				Self::do_approve_proposal(seats, voting, proposal_hash, proposal);
+			return Ok((T::WeightInfo::close_early_approved(len as u32, seats, proposal_count)
+					.saturating_add(proposal_weight), Pays::Yes));
+		} else if disapproved {
+			Self::deposit_event(RawEvent::Closed(proposal_hash, yes_votes, no_votes));
+			let proposal_count = Self::do_disapprove_proposal(proposal_hash);
+			return Ok((T::WeightInfo::close_early_disapproved(seats, proposal_count), Pays::No));
+		}
+
+		// Only allow actual closing of the proposal after the voting period has ended.
+		ensure!(system::Pallet::<T>::block_number() >= voting.end, Error::<T, I>::TooEarly);
+
+		let prime_vote = Self::prime().map(|who| voting.ayes.iter().any(|a| a == &who));
+
+		// default voting strategy.
+		let default = T::DefaultVote::default_vote(prime_vote, yes_votes, no_votes, seats);
+
+		let abstentions = seats - (yes_votes + no_votes);
+		match default {
+			true => yes_votes += abstentions,
+			false => no_votes += abstentions,
+		}
+		let approved = yes_votes >= voting.threshold;
+
+		if approved {
+			let (proposal, len) = Self::validate_and_get_proposal(
+				&proposal_hash,
+				length_bound,
+				proposal_weight_bound,
+			)?;
+			Self::deposit_event(RawEvent::Closed(proposal_hash, yes_votes, no_votes));
+			let (proposal_weight, proposal_count) =
+				Self::do_approve_proposal(seats, voting, proposal_hash, proposal);
+			Ok((T::WeightInfo::close_approved(len as u32, seats, proposal_count)
+					.saturating_add(proposal_weight), Pays::Yes))
+		} else {
+			Self::deposit_event(RawEvent::Closed(proposal_hash, yes_votes, no_votes));
+			let proposal_count = Self::do_disapprove_proposal(proposal_hash);
+			Ok((T::WeightInfo::close_disapproved(seats, proposal_count), Pays::No))
+		}
 	}
 
 	/// Ensure that the right proposal bounds were passed and get the proposal from storage.
@@ -774,7 +794,7 @@ impl<T: Config<I>, I: Instance> Module<T, I> {
 		(proposal_weight, proposal_count)
 	}
 
-	fn do_disapprove_proposal(proposal_hash: T::Hash) -> u32 {
+	pub fn do_disapprove_proposal(proposal_hash: T::Hash) -> u32 {
 		// disapproved
 		Self::deposit_event(RawEvent::Disapproved(proposal_hash));
 		Self::remove_proposal(proposal_hash)

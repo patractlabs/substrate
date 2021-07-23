@@ -159,7 +159,7 @@ pub mod pallet {
 	>;
 
 	#[pallet::genesis_config]
-	pub struct GenesisConfig<T: Config<I>, I: 'static = ()> {
+	pub struct GenesisConfig<T: Config<I>> {
 		dummy: Option<T::Balance>,
 		bar: Vec<(T::AccountId, T::Balance)>,
 		foo: T::Balance,
